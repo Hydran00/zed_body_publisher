@@ -2,7 +2,7 @@ cmake_minimum_required(VERSION 3.8)
 project(body_tracker)
 
 if(CMAKE_COMPILER_IS_GNUCXX OR CMAKE_CXX_COMPILER_ID MATCHES "Clang")
-  add_compile_options(-Wall -Wextra -Wpedantic)
+  add_compile_options(-Wall -Wextra -Wno-pedantic -Wno-deprecated-copy -Wno-sign-compare)
 endif()
 
 set(CMAKE_CXXFLAGS "-std=c++14")

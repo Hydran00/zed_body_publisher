@@ -1,26 +1,3 @@
-///////////////////////////////////////////////////////////////////////////
-//
-// Copyright (c) 2022, STEREOLABS.
-//
-// All rights reserved.
-//
-// THIS SOFTWARE IS PROVIDED BY THE COPYRIGHT HOLDERS AND CONTRIBUTORS
-// "AS IS" AND ANY EXPRESS OR IMPLIED WARRANTIES, INCLUDING, BUT NOT
-// LIMITED TO, THE IMPLIED WARRANTIES OF MERCHANTABILITY AND FITNESS FOR
-// A PARTICULAR PURPOSE ARE DISCLAIMED. IN NO EVENT SHALL THE COPYRIGHT
-// OWNER OR CONTRIBUTORS BE LIABLE FOR ANY DIRECT, INDIRECT, INCIDENTAL,
-// SPECIAL, EXEMPLARY, OR CONSEQUENTIAL DAMAGES (INCLUDING, BUT NOT
-// LIMITED TO, PROCUREMENT OF SUBSTITUTE GOODS OR SERVICES; LOSS OF USE,
-// DATA, OR PROFITS; OR BUSINESS INTERRUPTION) HOWEVER CAUSED AND ON ANY
-// THEORY OF LIABILITY, WHETHER IN CONTRACT, STRICT LIABILITY, OR TORT
-// (INCLUDING NEGLIGENCE OR OTHERWISE) ARISING IN ANY WAY OUT OF THE USE
-// OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
-//
-///////////////////////////////////////////////////////////////////////////
-
-// OpenGL Viewer(!=0) or no viewer (0)
-#define DISPLAY_OGL 0
-
 // ZED include
 #include <sl/Camera.hpp>
 // OpenCV
@@ -44,14 +21,51 @@ nlohmann::json getJson(sl::Camera& pcamera, sl::Bodies& bodies, int id,
 
 nlohmann::json bodyDataToJson(sl::BodyData body);
 void parseArgsMonoCam(int argc, char** argv, InitParameters& param);
-// void print(string msg_prefix, ERROR_CODE err_code = ERROR_CODE::SUCCESS,
-//            string msg_suffix = "");
 
-/// ----------------------------------------------------------------------------
-/// ----------------------------------------------------------------------------
-/// -------------------------------- MAIN LOOP ---------------------------------
-/// ----------------------------------------------------------------------------
-/// ----------------------------------------------------------------------------
+int clip(const int& n, const int& lower, const int& upper) {
+  return std::max(lower, std::min(n, upper));
+}
+
+int getOCVtype(sl::MAT_TYPE type) {
+  int cv_type = -1;
+  switch (type) {
+    case MAT_TYPE::F32_C1:
+      cv_type = CV_32FC1;
+      break;
+    case MAT_TYPE::F32_C2:
+      cv_type = CV_32FC2;
+      break;
+    case MAT_TYPE::F32_C3:
+      cv_type = CV_32FC3;
+      break;
+    case MAT_TYPE::F32_C4:
+      cv_type = CV_32FC4;
+      break;
+    case MAT_TYPE::U8_C1:
+      cv_type = CV_8UC1;
+      break;
+    case MAT_TYPE::U8_C2:
+      cv_type = CV_8UC2;
+      break;
+    case MAT_TYPE::U8_C3:
+      cv_type = CV_8UC3;
+      break;
+    case MAT_TYPE::U8_C4:
+      cv_type = CV_8UC4;
+      break;
+    default:
+      break;
+  }
+  return cv_type;
+}
+cv::Mat slMat2cvMat(sl::Mat& input) {
+  // Since cv::Mat data requires a uchar* pointer, we get the uchar1 pointer
+  // from sl::Mat (getPtr<T>()) cv::Mat and sl::Mat will share a single memory
+  // structure
+  return cv::Mat(
+      input.getHeight(), input.getWidth(), getOCVtype(input.getDataType()),
+      input.getPtr<sl::uchar1>(MEM::CPU), input.getStepBytes(sl::MEM::CPU));
+}
 
 int main(int argc, char** argv) {
   // Initialize ROS2
@@ -65,48 +79,35 @@ int main(int argc, char** argv) {
   init_parameters.camera_resolution = RESOLUTION::HD720;
   init_parameters.camera_fps = 30;
   init_parameters.depth_mode = DEPTH_MODE::PERFORMANCE;
-  init_parameters.coordinate_system =
-      COORDINATE_SYSTEM::LEFT_HANDED_Y_UP;  // Coordinate system of Unity.
-  // COORDINATE_SYSTEM::RIGHT_HANDED_Z_UP;  // Coordinate system of ROS.
-  // init_parameters.coordinate_units = UNIT::METER;
+  init_parameters.coordinate_system = COORDINATE_SYSTEM::LEFT_HANDED_Y_UP;
   init_parameters.svo_real_time_mode = true;
 
-  // Parse the command line arguments (see function definition)
   parseArgsMonoCam(argc, argv, init_parameters);
 
-  // Open the camera
   auto returned_state = zed.open(init_parameters);
   if (returned_state != ERROR_CODE::SUCCESS) {
-    // print("Open Camera", returned_state, "\nExit program.");
     zed.close();
     return EXIT_FAILURE;
   }
 
-  // Enable Positional tracking (mandatory for body tracking)
-  // -------------------------------------------------------
   PositionalTrackingParameters positional_tracking_parameters;
   positional_tracking_parameters.set_floor_as_origin = true;
-  // If the camera is static, uncomment the following line to have better
-  // performance. positional_tracking_parameters.set_as_static = true;
 
   returned_state = zed.enablePositionalTracking(positional_tracking_parameters);
   if (returned_state != ERROR_CODE::SUCCESS) {
-    // print("enable Positional Tracking", returned_state, "\nExit program.");
     zed.close();
     return EXIT_FAILURE;
   }
 
-  // Enable the Body tracking module
-  // -------------------------------------------------------------------------------------
   BodyTrackingParameters body_tracker_params;
-  body_tracker_params.enable_tracking = true;      // track people across grabs
-  body_tracker_params.enable_body_fitting = true;  // smooth skeletons moves
+  body_tracker_params.enable_tracking = true;
+  body_tracker_params.enable_body_fitting = true;
   body_tracker_params.body_format = sl::BODY_FORMAT::BODY_38;
   body_tracker_params.detection_model =
       BODY_TRACKING_MODEL::HUMAN_BODY_ACCURATE;
+  body_tracker_params.enable_segmentation = true;
   returned_state = zed.enableBodyTracking(body_tracker_params);
   if (returned_state != ERROR_CODE::SUCCESS) {
-    // print("enable Body Tracking", returned_state, "\nExit program.");
     zed.close();
     return EXIT_FAILURE;
   }
@@ -119,34 +120,24 @@ int main(int argc, char** argv) {
   Pose cam_pose;
   cam_pose.pose_data.setIdentity();
 
-  // Configure body tracking runtime parameters
   BodyTrackingRuntimeParameters body_tracker_parameters_rt;
   body_tracker_parameters_rt.detection_confidence_threshold = 40;
   body_tracker_parameters_rt.minimum_keypoints_threshold = 10;
 
-  // Create ZED Bodies filled in the main loop
   Bodies bodies;
 
   unsigned int serial_num = 0;
   bool run = true;
 
-  // ----------------------------------
-  // UDP to Unity----------------------
-  // ----------------------------------
   std::string servAddress;
   unsigned short servPort;
   UDPSocket sock;
-
-  // sock.setMulticastTTL(1);
 
   servAddress = "230.0.0.1";
   servPort = 20000;
 
   std::cout << "Sending fused data at " << servAddress << ":" << servPort
             << std::endl;
-  // ----------------------------------
-  // UDP to Unity----------------------
-  // ----------------------------------
 
   RuntimeParameters rt_params;
   rt_params.measure3D_reference_frame = REFERENCE_FRAME::WORLD;
@@ -159,23 +150,17 @@ int main(int argc, char** argv) {
   while (rclcpp::ok() && run) {
     auto err = zed.grab(rt_params);
     if (err == ERROR_CODE::SUCCESS) {
-      // Display image with OpenCV
       sl::Mat sl_image;
       zed.retrieveImage(sl_image, VIEW::LEFT);
 
-      // Convert sl::Mat to cv::Mat (share buffer)
       cv::Mat cvImage(sl_image.getHeight(), sl_image.getWidth(),
                       (sl_image.getChannels() == 1) ? CV_8UC1 : CV_8UC4,
                       sl_image.getPtr<sl::uchar1>(sl::MEM::CPU));
-      cv::resize(cvImage, cvImage, cv::Size(), 0.5, 0.5);
-      cv::imshow("video", cvImage);
-      cv::waitKey(1);
+      // draw bbox
 
-      // Retrieve Detected Human Bodies
       zed.retrieveBodies(bodies, body_tracker_parameters_rt);
 
 #if DISPLAY_OGL
-      // Update GL View
       viewer.updateData(bodies, cam_pose.pose_data);
 #endif
 
@@ -190,6 +175,10 @@ int main(int argc, char** argv) {
             }
           }
 
+          cv::resize(cvImage, cvImage, cv::Size(), 0.5, 0.5);
+          cv::imshow("video", cvImage);
+          cv::waitKey(1);
+          // continue;
           std::string data_to_send = getJson(zed, bodies, closest_body,
                                              body_tracker_params.body_format)
                                          .dump();
@@ -197,18 +186,35 @@ int main(int argc, char** argv) {
                       servPort);
 
           sl::Mat point_cloud;
-          // Publish point cloud
           zed.retrieveMeasure(point_cloud, sl::MEASURE::XYZRGBA);
-          // Convert ZED PointCloud to ROS2 PointCloud2
+
+          auto mask = bodies.body_list[closest_body].mask;
+
+          // if mask is empty, skip
+          if (mask.getWidth() == 0 || mask.getHeight() == 0) {
+            std::cout << "Mask is empty, skip" << std::endl;
+            continue;
+          }
+
+          // Bounding box coordinate
+          int bb_x_min = bodies.body_list[closest_body].bounding_box_2d[0][0];
+          int bb_y_min = bodies.body_list[closest_body].bounding_box_2d[0][1];
+          int bb_x_max = bodies.body_list[closest_body].bounding_box_2d[2][0];
+          int bb_y_max = bodies.body_list[closest_body].bounding_box_2d[2][1];
+
+          sl::Mat body_point_cloud(bb_x_max - bb_x_min, bb_y_max - bb_y_min,
+                                   MAT_TYPE::F32_C4, MEM::CPU);
+
           auto ros_pointcloud = sensor_msgs::msg::PointCloud2();
           ros_pointcloud.header.stamp = node->now();
-          ros_pointcloud.header.frame_id = "map";  // Set the frame_id as needed
-          ros_pointcloud.height = sl_image.getHeight();
-          ros_pointcloud.width = sl_image.getWidth();
+          ros_pointcloud.header.frame_id = "map";
+          // use bbox to mask the point cloud
+
+          ros_pointcloud.width = bb_x_max - bb_x_min;
+          ros_pointcloud.height = bb_y_max - bb_y_min;
           ros_pointcloud.is_dense = false;
           ros_pointcloud.is_bigendian = false;
 
-          // Setup PointCloud2 data fields
           sensor_msgs::msg::PointField x_field, y_field, z_field, rgb_field;
           x_field.name = "x";
           x_field.offset = 0;
@@ -231,43 +237,50 @@ int main(int argc, char** argv) {
           ros_pointcloud.fields.push_back(y_field);
           ros_pointcloud.fields.push_back(z_field);
           ros_pointcloud.fields.push_back(rgb_field);
-          ros_pointcloud.point_step = 16;  // x (4) + y (4) + z (4) + rgb (4)
+          ros_pointcloud.point_step = 16;
           ros_pointcloud.row_step =
               ros_pointcloud.point_step * ros_pointcloud.width;
           ros_pointcloud.data.resize(ros_pointcloud.row_step *
                                      ros_pointcloud.height);
           ros_pointcloud.is_dense = false;
 
-          // Fill the data
           float* data = reinterpret_cast<float*>(ros_pointcloud.data.data());
           sl::float4 point3D;
-          float color;
-          for (size_t i = 0; i < sl_image.getHeight(); i++) {
-            for (size_t j = 0; j < sl_image.getWidth(); j++) {
-              size_t index = i * sl_image.getWidth() + j;
-              // Get the 3D point cloud values for pixel (i, j)
-              point_cloud.getValue(
-                  j, i,
-                  &point3D);  // Corrected indexing for point_cloud retrieval
-              data[index * 4 + 0] = point3D.x/1000;
-              data[index * 4 + 1] = point3D.y/1000;
-              data[index * 4 + 2] = point3D.z/1000;
 
-              // Handle the color information (point3D.w contains color)
-              uint32_t rgb = *reinterpret_cast<uint32_t*>(&point3D.w);
-              std::memcpy(&data[index * 4 + 3], &rgb,4);  // Corrected memcpy for RGB
+          sl::uchar1 mask_value;
+          int index = 0;
+          for (int y = bb_y_min; y < bb_y_max; y++) {
+            for (int x = bb_x_min; x < bb_x_max; x++) {
+              // get the mask value of the pixel
+              if (mask.getValue(x - bb_x_min, y - bb_y_min, &mask_value) ==
+                  ERROR_CODE::SUCCESS) {
+                if (int(mask_value) != 255) {
+                  continue;
+                } else {
+                  point_cloud.getValue(x, y, &point3D);
+                  if (index < ros_pointcloud.width * ros_pointcloud.height) {
+                    data[index * 4 + 0] = point3D.x / 1000.0;
+                    data[index * 4 + 1] = point3D.y / 1000.0;
+                    data[index * 4 + 2] = point3D.z / 1000.0;
+                    uint32_t rgb = *reinterpret_cast<uint32_t*>(&point3D.w);
+                    // convert from ABGR to RGBA
+                    rgb = ((rgb & 0x000000FF) << 16) |
+                          ((rgb & 0x0000FF00)) | ((rgb & 0x00FF0000) >> 16);
+                    std::memcpy(&data[index * 4 + 3], &rgb, 4);
+                    index++;
+                  }
+                }
+              }
             }
           }
-
           point_cloud_pub->publish(ros_pointcloud);
         } catch (SocketException& e) {
-          cerr << e.what() << endl;
+          std::cerr << e.what() << std::endl;
         }
       }
     } else if (err == sl::ERROR_CODE::END_OF_SVOFILE_REACHED) {
       zed.setSVOPosition(0);
     } else {
-      // print("error grab", returned_state, "\nExit program.");
     }
 
 #if DISPLAY_OGL
@@ -281,10 +294,8 @@ int main(int argc, char** argv) {
   viewer.exit();
 #endif
 
-  // Release Bodies
   bodies.body_list.clear();
 
-  // Disable modules
   zed.disableBodyTracking();
   zed.disablePositionalTracking();
   zed.close();
@@ -292,7 +303,6 @@ int main(int argc, char** argv) {
   rclcpp::shutdown();
   return EXIT_SUCCESS;
 }
-
 /// ----------------------------------------------------------------------------
 /// ----------------------------------------------------------------------------
 /// ----------------------------- DATA FORMATTING

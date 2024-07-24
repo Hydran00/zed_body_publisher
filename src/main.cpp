@@ -10,6 +10,8 @@
 #include "json.hpp"
 #include "sensor_msgs/msg/point_cloud2.hpp"
 #include "sensor_msgs/point_cloud2_iterator.hpp"
+#include <opencv2/dnn.hpp>
+
 
 using namespace sl;
 using namespace std::chrono_literals;
@@ -121,8 +123,8 @@ int main(int argc, char** argv) {
   cam_pose.pose_data.setIdentity();
 
   BodyTrackingRuntimeParameters body_tracker_parameters_rt;
-  body_tracker_parameters_rt.detection_confidence_threshold = 40;
-  body_tracker_parameters_rt.minimum_keypoints_threshold = 10;
+  body_tracker_parameters_rt.detection_confidence_threshold = 50;
+  body_tracker_parameters_rt.minimum_keypoints_threshold = 7;
 
   Bodies bodies;
 
@@ -157,8 +159,14 @@ int main(int argc, char** argv) {
                       (sl_image.getChannels() == 1) ? CV_8UC1 : CV_8UC4,
                       sl_image.getPtr<sl::uchar1>(sl::MEM::CPU));
       // draw bbox
-
+      cv::Mat resized = cvImage.clone();
+      cv::resize(resized, resized, cv::Size(), 0.5, 0.5);
+      cv::imshow("video", resized);
+      cv::waitKey(1);
       zed.retrieveBodies(bodies, body_tracker_parameters_rt);
+      if(bodies.body_list.size() == 0) {
+        continue;
+      }
 
 #if DISPLAY_OGL
       viewer.updateData(bodies, cam_pose.pose_data);
@@ -175,9 +183,6 @@ int main(int argc, char** argv) {
             }
           }
 
-          cv::resize(cvImage, cvImage, cv::Size(), 0.5, 0.5);
-          cv::imshow("video", cvImage);
-          cv::waitKey(1);
           // continue;
           std::string data_to_send = getJson(zed, bodies, closest_body,
                                              body_tracker_params.body_format)
@@ -247,6 +252,8 @@ int main(int argc, char** argv) {
           float* data = reinterpret_cast<float*>(ros_pointcloud.data.data());
           sl::float4 point3D;
 
+
+ 
           sl::uchar1 mask_value;
           int index = 0;
           for (int y = bb_y_min; y < bb_y_max; y++) {
@@ -257,6 +264,11 @@ int main(int argc, char** argv) {
                 if (int(mask_value) != 255) {
                   continue;
                 } else {
+                  // mask original image pixel
+                  cv::Vec4b& pixel = cvImage.at<cv::Vec4b>(y, x);
+                  pixel[0] = 0;
+                  pixel[1] = 0;
+                  pixel[2] = 255;
                   point_cloud.getValue(x, y, &point3D);
                   if (index < ros_pointcloud.width * ros_pointcloud.height) {
                     data[index * 4 + 0] = point3D.x / 1000.0;
@@ -273,6 +285,9 @@ int main(int argc, char** argv) {
               }
             }
           }
+          cv::resize(cvImage, cvImage, cv::Size(), 0.5, 0.5);
+          cv::imshow("video", cvImage);
+          cv::waitKey(1);
           point_cloud_pub->publish(ros_pointcloud);
         } catch (SocketException& e) {
           std::cerr << e.what() << std::endl;

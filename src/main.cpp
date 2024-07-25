@@ -10,7 +10,6 @@
 #include "json.hpp"
 #include "sensor_msgs/msg/point_cloud2.hpp"
 #include "sensor_msgs/point_cloud2_iterator.hpp"
-#include <opencv2/dnn.hpp>
 
 
 using namespace sl;
@@ -80,7 +79,7 @@ int main(int argc, char** argv) {
   InitParameters init_parameters;
   init_parameters.camera_resolution = RESOLUTION::HD720;
   init_parameters.camera_fps = 30;
-  init_parameters.depth_mode = DEPTH_MODE::PERFORMANCE;
+  init_parameters.depth_mode = DEPTH_MODE::NEURAL;
   init_parameters.coordinate_system = COORDINATE_SYSTEM::LEFT_HANDED_Y_UP;
   init_parameters.svo_real_time_mode = true;
 
@@ -142,7 +141,8 @@ int main(int argc, char** argv) {
             << std::endl;
 
   RuntimeParameters rt_params;
-  rt_params.measure3D_reference_frame = REFERENCE_FRAME::WORLD;
+  // rt_params.measure3D_reference_frame = REFERENCE_FRAME::WORLD;
+  rt_params.measure3D_reference_frame = REFERENCE_FRAME::CAMERA;
 
   std::cout << "Sending Mono-Camera data at " << servAddress << ":" << servPort
             << std::endl;

@@ -14,8 +14,6 @@ class TestClient(Node):
         self.cli = self.create_client(Segmentation, 'human_mask')
         self.bridge = CvBridge()
         self.test_img = cv2.imread(get_package_share_directory('yolo_seg') + '/assets/student.jpg')
-        # cv2.imshow('Test Image', self.test_img)
-        # cv2.waitKey(0)
         while not self.cli.wait_for_service(timeout_sec=1.0):
             self.get_logger().info('service not available, waiting again...')
         self.get_logger().info('Service available')
@@ -30,10 +28,18 @@ class TestClient(Node):
     def callback(self, future):
         try:
             response = future.result()
-            cv_image = self.bridge.imgmsg_to_cv2(response.res, desired_encoding='mono8')
+            cv_image = self.bridge.imgmsg_to_cv2(response.mask, desired_encoding='mono8')
             self.get_logger().info('Human mask received')
             cv2.imshow('Human Mask', cv_image)
             cv2.waitKey(0)
+            # apply the mask to the original image
+            masked_image = cv2.bitwise_and(self.test_img, self.test_img, mask=cv_image)
+            cv2.imshow('Masked Image', masked_image)
+            cv2.waitKey(0)
+            rclpy.shutdown()
+            exit(0)
+            
+            
         except Exception as e:
             self.get_logger().info('Service call failed %r' % (e,))
 

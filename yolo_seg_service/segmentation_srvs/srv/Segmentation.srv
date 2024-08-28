@@ -1,3 +1,4 @@
 sensor_msgs/Image req
 ---
-sensor_msgs/Image res
+sensor_msgs/Image mask
+int32[4] bbox # xmin, ymin, xmax, ymax (left, top, right, bottom)

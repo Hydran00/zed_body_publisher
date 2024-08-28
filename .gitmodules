@@ -1,0 +1,3 @@
+[submodule "yolov8-onnx-cpp"]
+	path = yolov8-onnx-cpp
+	url = git@github.com:FourierMourier/yolov8-onnx-cpp.git

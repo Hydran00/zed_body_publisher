@@ -3,3 +3,4 @@ build
 install
 log
 __pycache__
+yolov8s-seg.pt

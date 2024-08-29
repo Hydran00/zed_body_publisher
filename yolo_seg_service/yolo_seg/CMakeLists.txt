@@ -17,7 +17,7 @@ install(PROGRAMS
   DESTINATION lib/${PROJECT_NAME}
 )
 install (DIRECTORY
-  assets
+  assets launch
   DESTINATION share/${PROJECT_NAME}
 )
 

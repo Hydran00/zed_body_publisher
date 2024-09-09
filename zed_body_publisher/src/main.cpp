@@ -44,7 +44,7 @@ int main(int argc, char **argv)
   init_parameters.camera_resolution = RESOLUTION::HD720;
   init_parameters.camera_fps = 30;
   init_parameters.depth_mode = DEPTH_MODE::NEURAL;
-  init_parameters.coordinate_system = COORDINATE_SYSTEM::LEFT_HANDED_Y_UP;
+  init_parameters.coordinate_system = COORDINATE_SYSTEM::RIGHT_HANDED_Z_UP_X_FWD;
   init_parameters.svo_real_time_mode = true;
 
   parseArgsMonoCam(argc, argv, init_parameters);
@@ -222,7 +222,7 @@ int main(int argc, char **argv)
 
           auto ros_pointcloud = sensor_msgs::msg::PointCloud2();
           ros_pointcloud.header.stamp = node->now();
-          ros_pointcloud.header.frame_id = "map";
+          ros_pointcloud.header.frame_id = "zed2_left_camera_frame";
 
           ros_pointcloud.width = bb_x_max - bb_x_min;
           ros_pointcloud.height = bb_y_max - bb_y_min;

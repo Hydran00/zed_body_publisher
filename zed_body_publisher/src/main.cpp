@@ -1,3 +1,4 @@
+#define DISPLAY_OGL 0
 // ZED include
 #include <sl/Camera.hpp>
 // OpenCV
@@ -24,6 +25,8 @@ int main(int argc, char **argv)
   auto node = rclcpp::Node::make_shared("zed_body_publisher");
   auto point_cloud_pub =
       node->create_publisher<sensor_msgs::msg::PointCloud2>("point_cloud", 1);
+  auto point_cloud_pub_rh_z_up =
+      node->create_publisher<sensor_msgs::msg::PointCloud2>("point_cloud_rh_z_up", 1);
   auto segmentation_client =
       node->create_client<segmentation_srvs::srv::Segmentation>("human_mask");
   while (!segmentation_client->wait_for_service(2s))
@@ -44,7 +47,8 @@ int main(int argc, char **argv)
   init_parameters.camera_resolution = RESOLUTION::HD720;
   init_parameters.camera_fps = 30;
   init_parameters.depth_mode = DEPTH_MODE::NEURAL;
-  init_parameters.coordinate_system = COORDINATE_SYSTEM::RIGHT_HANDED_Z_UP_X_FWD;
+  // init_parameters.coordinate_system = COORDINATE_SYSTEM::RIGHT_HANDED_Z_UP_X_FWD;
+  init_parameters.coordinate_system = COORDINATE_SYSTEM::LEFT_HANDED_Y_UP;
   init_parameters.svo_real_time_mode = true;
 
   parseArgsMonoCam(argc, argv, init_parameters);
@@ -258,7 +262,11 @@ int main(int argc, char **argv)
                                      ros_pointcloud.height);
           ros_pointcloud.is_dense = false;
 
+          auto ros_pointcloud_rh_z_up = ros_pointcloud;
+
           float *data = reinterpret_cast<float *>(ros_pointcloud.data.data());
+          float *data_rh_z_up = reinterpret_cast<float *>(ros_pointcloud_rh_z_up.data.data());
+
           sl::float4 point3D;
 
           // use bbox to mask the point cloud
@@ -282,11 +290,17 @@ int main(int argc, char **argv)
                   data[index * 4 + 0] = point3D.x / 1000.0;
                   data[index * 4 + 1] = point3D.y / 1000.0;
                   data[index * 4 + 2] = point3D.z / 1000.0;
+
+                  data_rh_z_up[index * 4 + 0] = point3D.z / 1000.0;
+                  data_rh_z_up[index * 4 + 1] = -point3D.x / 1000.0;
+                  data_rh_z_up[index * 4 + 2] = point3D.y / 1000.0;
+
                   uint32_t rgb = *reinterpret_cast<uint32_t *>(&point3D.w);
                   // convert from ABGR to RGBA
                   rgb = ((rgb & 0x000000FF) << 16) | ((rgb & 0x0000FF00)) |
                         ((rgb & 0x00FF0000) >> 16);
                   std::memcpy(&data[index * 4 + 3], &rgb, 4);
+                  std::memcpy(&data_rh_z_up[index * 4 + 3], &rgb, 4);
                   index++;
                 }
               }
@@ -300,6 +314,7 @@ int main(int argc, char **argv)
           cv::imshow("video", cvImage);
           cv::waitKey(1);
           point_cloud_pub->publish(ros_pointcloud);
+          point_cloud_pub_rh_z_up->publish(ros_pointcloud_rh_z_up);
         }
         catch (SocketException &e)
         {

@@ -144,7 +144,6 @@ int main(int argc, char **argv)
       {
         cv::Mat resized = cvImage.clone();
         cv::resize(resized, resized, cv::Size(), 0.5, 0.5);
-        cv::imwrite("image_res.png", resized);
         cv::imshow("video", resized);
         cv::waitKey(1);
         continue;
@@ -209,7 +208,7 @@ int main(int argc, char **argv)
           auto response = result.get();
           if (response->found_human == false)
           {
-            continue;
+            // continue;
           }
           cv::Mat mask =
               cv_bridge::toCvCopy(response->mask, "mono8")->image;
@@ -281,28 +280,28 @@ int main(int argc, char **argv)
               }
               else
               {
-                // mask original image pixel
-                cv::Vec3b &pixel = cvImage.at<cv::Vec3b>(y, x);
-                pixel[2] = 255;
-                point_cloud.getValue(x, y, &point3D);
-                if (index < ros_pointcloud.width * ros_pointcloud.height)
-                {
-                  data[index * 4 + 0] = point3D.x / 1000.0;
-                  data[index * 4 + 1] = point3D.y / 1000.0;
-                  data[index * 4 + 2] = point3D.z / 1000.0;
+              // mask original image pixel
+              cv::Vec3b &pixel = cvImage.at<cv::Vec3b>(y, x);
+              pixel[2] = 255;
+              point_cloud.getValue(x, y, &point3D);
+              if (index < ros_pointcloud.width * ros_pointcloud.height)
+              {
+                data[index * 4 + 0] = point3D.x / 1000.0;
+                data[index * 4 + 1] = point3D.y / 1000.0;
+                data[index * 4 + 2] = point3D.z / 1000.0;
 
-                  data_rh_z_up[index * 4 + 0] = point3D.z / 1000.0;
-                  data_rh_z_up[index * 4 + 1] = -point3D.x / 1000.0;
-                  data_rh_z_up[index * 4 + 2] = point3D.y / 1000.0;
+                data_rh_z_up[index * 4 + 0] = point3D.z / 1000.0;
+                data_rh_z_up[index * 4 + 1] = -point3D.x / 1000.0;
+                data_rh_z_up[index * 4 + 2] = point3D.y / 1000.0;
 
-                  uint32_t rgb = *reinterpret_cast<uint32_t *>(&point3D.w);
-                  // convert from ABGR to RGBA
-                  rgb = ((rgb & 0x000000FF) << 16) | ((rgb & 0x0000FF00)) |
-                        ((rgb & 0x00FF0000) >> 16);
-                  std::memcpy(&data[index * 4 + 3], &rgb, 4);
-                  std::memcpy(&data_rh_z_up[index * 4 + 3], &rgb, 4);
-                  index++;
-                }
+                uint32_t rgb = *reinterpret_cast<uint32_t *>(&point3D.w);
+                // convert from ABGR to RGBA
+                rgb = ((rgb & 0x000000FF) << 16) | ((rgb & 0x0000FF00)) |
+                      ((rgb & 0x00FF0000) >> 16);
+                std::memcpy(&data[index * 4 + 3], &rgb, 4);
+                std::memcpy(&data_rh_z_up[index * 4 + 3], &rgb, 4);
+                index++;
+              }
               }
             }
           }

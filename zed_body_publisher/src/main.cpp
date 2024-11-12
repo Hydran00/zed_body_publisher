@@ -25,22 +25,9 @@ int main(int argc, char **argv)
   rclcpp::init(argc, argv);
   auto node = rclcpp::Node::make_shared("zed_body_publisher");
 
-  // auto point_cloud_pub =
-  //     node->create_publisher<sensor_msgs::msg::PointCloud2>("point_cloud", 1);
   auto point_cloud_pub_rh_z_up =
       node->create_publisher<sensor_msgs::msg::PointCloud2>("/zed/zed_node/point_cloud_rh_z_up", 1);
   auto image_pub = node->create_publisher<sensor_msgs::msg::Image>("/zed/zed_node/image_rect_color", 1);
-  auto segmentation_client =
-      node->create_client<segmentation_srvs::srv::Segmentation>("human_mask");
-  // while (!segmentation_client->wait_for_service(2s))
-  // {
-  //   if (!rclcpp::ok())
-  //   {
-  //     RCLCPP_ERROR(node->get_logger(), "Interrupted while waiting for the service. Exiting.");
-  //     return 0;
-  //   }
-  //   RCLCPP_INFO(node->get_logger(), "Segmentation service not available, waiting again...");
-  // }
 
   sensor_msgs::msg::PointField x_field, y_field, z_field, rgb_field;
   x_field.name = "x";
@@ -69,6 +56,16 @@ int main(int argc, char **argv)
   ros_pointcloud.is_dense = false;
   ros_pointcloud.is_bigendian = false;
   ros_pointcloud.is_dense = false;
+  auto point_cloud_msg = std::make_shared<sensor_msgs::msg::PointCloud2>();
+  point_cloud_msg->fields.push_back(x_field);
+  point_cloud_msg->fields.push_back(y_field);
+  point_cloud_msg->fields.push_back(z_field);
+  point_cloud_msg->fields.push_back(rgb_field);
+  point_cloud_msg->header.stamp = node->now();
+  point_cloud_msg->header.frame_id = "zed2_left_camera_frame";
+  point_cloud_msg->is_dense = false;
+  point_cloud_msg->is_bigendian = false;
+  point_cloud_msg->point_step = 16; // 4 floats (x, y, z, rgba)
 
   // cv bridge
   auto cv_bridge = std::make_shared<cv_bridge::CvImage>();
@@ -150,7 +147,6 @@ int main(int argc, char **argv)
             << std::endl;
 
   cv::Mat image;
-  auto point_cloud_msg = std::make_shared<sensor_msgs::msg::PointCloud2>();
   while (rclcpp::ok() && run)
   {
     auto err = zed.grab(rt_params);
@@ -209,71 +205,46 @@ int main(int argc, char **argv)
           sl::Mat point_cloud;
           zed.retrieveMeasure(point_cloud, sl::MEASURE::XYZRGBA);
 
-          int bb_x_min = 0;
-          int bb_y_min = 0;
-          int bb_x_max = cvImage.cols;
-          int bb_y_max = cvImage.rows;
+          point_cloud_msg->height = point_cloud.getHeight();
+          point_cloud_msg->width = point_cloud.getWidth();
+          point_cloud_msg->row_step = point_cloud_msg->point_step * point_cloud_msg->width;
+          // Resize data array to hold the point cloud data
+          point_cloud_msg->data.resize(point_cloud_msg->row_step * point_cloud_msg->height);
 
-          ros_pointcloud.header.stamp = node->now();
-
-          ros_pointcloud.width = bb_x_max - bb_x_min;
-          ros_pointcloud.height = bb_y_max - bb_y_min;
-
-          ros_pointcloud.row_step =
-              ros_pointcloud.point_step * ros_pointcloud.width;
-          ros_pointcloud.data.resize(ros_pointcloud.row_step *
-                                     ros_pointcloud.height);
-
-          // float *data = reinterpret_cast<float *>(ros_pointcloud.data.data());
-          float *data_rh_z_up = reinterpret_cast<float *>(ros_pointcloud.data.data());
-
-          sl::float4 point3D;
-
-          // use bbox to mask the point cloud
-          int index = 0;
-#pragma omp parallel for collapse(2)
-          for (int y = bb_y_min; y < bb_y_max; y++)
+          // Populate the PointCloud2 message data
+          float *zed_data_ptr = point_cloud.getPtr<float>();
+          auto convertABGRtoRGB = [](uint32_t abgr) -> uint32_t
           {
-            for (int x = bb_x_min; x < bb_x_max; x++)
-            {
-              if (x < 0 || x >= cvImage.cols || y < 0 || y >= cvImage.rows)
-              {
-                continue;
-              }
-              // mask original image pixel
-              cv::Vec3b &pixel = cvImage.at<cv::Vec3b>(y, x);
-              // pixel[2] = 255;
-              point_cloud.getValue(x, y, &point3D);
-              // if (index < ros_pointcloud.width * ros_pointcloud.height)
-              // {
-              data_rh_z_up[index * 4 + 0] = point3D.z / 1000.0;
-              data_rh_z_up[index * 4 + 1] = -point3D.x / 1000.0;
-              data_rh_z_up[index * 4 + 2] = point3D.y / 1000.0;
+            return ((abgr & 0x000000FF) << 16) |
+                   ((abgr & 0x0000FF00)) | ((abgr & 0x00FF0000) >> 16);
+          };
+#pragma omp parallel for
+          for (size_t i = 0; i < point_cloud_msg->width * point_cloud_msg->height; ++i)
+          {
+            size_t offset = i * point_cloud_msg->point_step;
+            float x = zed_data_ptr[i * 4 + 0] / 1000.0f; // Scale X
+            float y = zed_data_ptr[i * 4 + 1] / 1000.0f; // Scale Y
+            float z = zed_data_ptr[i * 4 + 2] / 1000.0f; // Scale Z
 
-              uint32_t rgb = *reinterpret_cast<uint32_t *>(&point3D.w);
-              // convert from ABGR to RGBA
-              rgb = ((rgb & 0x000000FF) << 16) | ((rgb & 0x0000FF00)) |
-                    ((rgb & 0x00FF0000) >> 16);
-              std::memcpy(&data_rh_z_up[index * 4 + 3], &rgb, 4);
-              index++;
-            }
-            // }
+            // Convert ABGR to RGB
+            uint32_t rgb = convertABGRtoRGB(*reinterpret_cast<uint32_t *>(&zed_data_ptr[i * 4 + 3]));
+
+            // Copy data into the PointCloud2 message
+            memcpy(&point_cloud_msg->data[offset], &x, sizeof(float));
+            memcpy(&point_cloud_msg->data[offset + 4], &y, sizeof(float));
+            memcpy(&point_cloud_msg->data[offset + 8], &z, sizeof(float));
+            memcpy(&point_cloud_msg->data[offset + 12], &rgb, sizeof(uint32_t));
           }
-          // }
+
           // draw bounding box
           cv::Mat vis = cvImage.clone();
-          // cv::rectangle(vis, cv::Point(bb_x_min, bb_y_min),
-          //               cv::Point(bb_x_max, bb_y_max), cv::Scalar(255, 0, 0),
-          //               3);
           cv::resize(vis, vis, cv::Size(), 0.7, 0.7);
           cv::flip(vis, vis, 1);
           cv::imshow("video", vis);
           cv::waitKey(1);
-          // point_cloud_pub->publish(ros_pointcloud);
-          point_cloud_pub_rh_z_up->publish(ros_pointcloud);
 
-          
-          
+          point_cloud_pub_rh_z_up->publish(*point_cloud_msg);
+
           // publish RGB image
           std_msgs::msg::Header header;
           header.stamp = node->now();
@@ -283,7 +254,7 @@ int main(int argc, char **argv)
           ros_image.toImageMsg(img_msg);
 
           image_pub->publish(img_msg);
-          // clear 
+          // clear
           ros_pointcloud.data.clear();
           ros_image.image.release();
         }

@@ -12,6 +12,7 @@
 #include "segmentation_srvs/srv/segmentation.hpp"
 #include "sensor_msgs/msg/point_cloud2.hpp"
 #include "sensor_msgs/point_cloud2_iterator.hpp"
+#include "sensor_msgs/msg/image.hpp"
 #include "utils.hpp"
 // cvbridge
 #include <cv_bridge/cv_bridge.h>
@@ -23,21 +24,51 @@ int main(int argc, char **argv)
   // Initialize ROS2
   rclcpp::init(argc, argv);
   auto node = rclcpp::Node::make_shared("zed_body_publisher");
-  auto point_cloud_pub =
-      node->create_publisher<sensor_msgs::msg::PointCloud2>("point_cloud", 1);
+
+  // auto point_cloud_pub =
+  //     node->create_publisher<sensor_msgs::msg::PointCloud2>("point_cloud", 1);
   auto point_cloud_pub_rh_z_up =
-      node->create_publisher<sensor_msgs::msg::PointCloud2>("point_cloud_rh_z_up", 1);
+      node->create_publisher<sensor_msgs::msg::PointCloud2>("/zed/zed_node/point_cloud_rh_z_up", 1);
+  auto image_pub = node->create_publisher<sensor_msgs::msg::Image>("/zed/zed_node/image_rect_color", 1);
   auto segmentation_client =
       node->create_client<segmentation_srvs::srv::Segmentation>("human_mask");
-  while (!segmentation_client->wait_for_service(2s))
-  {
-    if (!rclcpp::ok())
-    {
-      RCLCPP_ERROR(node->get_logger(), "Interrupted while waiting for the service. Exiting.");
-      return 0;
-    }
-    RCLCPP_INFO(node->get_logger(), "Segmentation service not available, waiting again...");
-  }
+  // while (!segmentation_client->wait_for_service(2s))
+  // {
+  //   if (!rclcpp::ok())
+  //   {
+  //     RCLCPP_ERROR(node->get_logger(), "Interrupted while waiting for the service. Exiting.");
+  //     return 0;
+  //   }
+  //   RCLCPP_INFO(node->get_logger(), "Segmentation service not available, waiting again...");
+  // }
+
+  sensor_msgs::msg::PointField x_field, y_field, z_field, rgb_field;
+  x_field.name = "x";
+  x_field.offset = 0;
+  x_field.datatype = sensor_msgs::msg::PointField::FLOAT32;
+  x_field.count = 1;
+  y_field.name = "y";
+  y_field.offset = 4;
+  y_field.datatype = sensor_msgs::msg::PointField::FLOAT32;
+  y_field.count = 1;
+  z_field.name = "z";
+  z_field.offset = 8;
+  z_field.datatype = sensor_msgs::msg::PointField::FLOAT32;
+  z_field.count = 1;
+  rgb_field.name = "rgb";
+  rgb_field.offset = 12;
+  rgb_field.datatype = sensor_msgs::msg::PointField::UINT32;
+  rgb_field.count = 1;
+  sensor_msgs::msg::PointCloud2 ros_pointcloud;
+  ros_pointcloud.header.frame_id = "zed2_left_camera_frame";
+  ros_pointcloud.fields.push_back(x_field);
+  ros_pointcloud.fields.push_back(y_field);
+  ros_pointcloud.fields.push_back(z_field);
+  ros_pointcloud.fields.push_back(rgb_field);
+  ros_pointcloud.point_step = 16;
+  ros_pointcloud.is_dense = false;
+  ros_pointcloud.is_bigendian = false;
+  ros_pointcloud.is_dense = false;
 
   // cv bridge
   auto cv_bridge = std::make_shared<cv_bridge::CvImage>();
@@ -134,17 +165,17 @@ int main(int argc, char **argv)
 
       if (cvImage.channels() == 4)
       {
-        cv::Mat tmpImage;
-        cv::cvtColor(cvImage, tmpImage, cv::COLOR_BGRA2BGR);
-        cvImage = tmpImage;
+        // cv::Mat tmpImage;
+        cv::cvtColor(cvImage, cvImage, cv::COLOR_BGRA2BGR);
       }
       // draw bbox
       zed.retrieveBodies(bodies, body_tracker_parameters_rt);
       if (bodies.body_list.size() == 0)
       {
-        cv::Mat resized = cvImage.clone();
-        cv::resize(resized, resized, cv::Size(), 0.5, 0.5);
-        cv::imshow("video", resized);
+        cv::Mat vis = cvImage.clone();
+        cv::resize(vis, vis, cv::Size(), 0.7, 0.7);
+        cv::flip(vis, vis, 1);
+        cv::imshow("video", vis);
         cv::waitKey(1);
         continue;
       }
@@ -157,7 +188,7 @@ int main(int argc, char **argv)
       {
         try
         {
-          double distance_to_camera = 1000000000000;
+          double distance_to_camera = std::numeric_limits<double>::max();
           int closest_body = 0;
           for (int i = 0; i < bodies.body_list.size(); i++)
           {
@@ -178,142 +209,83 @@ int main(int argc, char **argv)
           sl::Mat point_cloud;
           zed.retrieveMeasure(point_cloud, sl::MEASURE::XYZRGBA);
 
-          cv::Mat image_req = cvImage.clone();
-          // get mask from service
-          auto request =
-              std::make_shared<segmentation_srvs::srv::Segmentation::Request>();
-          std_msgs::msg::Header header;
-          header.stamp = node->now();
+          int bb_x_min = 0;
+          int bb_y_min = 0;
+          int bb_x_max = cvImage.cols;
+          int bb_y_max = cvImage.rows;
 
-          auto ros_image = cv_bridge::CvImage(
-              header, sensor_msgs::image_encodings::RGB8, image_req);
-          sensor_msgs::msg::Image img_msg;
-          ros_image.toImageMsg(img_msg);
-
-          request->req = img_msg;
-
-          auto result = segmentation_client->async_send_request(request);
-          // wait for the result
-          if (rclcpp::spin_until_future_complete(node->get_node_base_interface(), result, 2s) !=
-              rclcpp::FutureReturnCode::SUCCESS)
-          {
-            RCLCPP_ERROR(node->get_logger(), "Service call failed");
-            continue;
-          }
-          else
-          {
-            // RCLCPP_INFO(node->get_logger(), "Service call success");
-          }
-
-          auto response = result.get();
-          if (response->found_human == false)
-          {
-            // continue;
-          }
-          cv::Mat mask =
-              cv_bridge::toCvCopy(response->mask, "mono8")->image;
-
-          // cv::imshow("mask", mask);
-          // Bounding box coordinate
-          int bb_x_min = response->bbox[0];
-          int bb_y_min = response->bbox[1];
-          int bb_x_max = response->bbox[2];
-          int bb_y_max = response->bbox[3];
-
-          sl::Mat body_point_cloud(bb_x_max - bb_x_min, bb_y_max - bb_y_min,
-                                   MAT_TYPE::F32_C4, MEM::CPU);
-
-          auto ros_pointcloud = sensor_msgs::msg::PointCloud2();
           ros_pointcloud.header.stamp = node->now();
-          ros_pointcloud.header.frame_id = "zed2_left_camera_frame";
 
           ros_pointcloud.width = bb_x_max - bb_x_min;
           ros_pointcloud.height = bb_y_max - bb_y_min;
-          ros_pointcloud.is_dense = false;
-          ros_pointcloud.is_bigendian = false;
 
-          sensor_msgs::msg::PointField x_field, y_field, z_field, rgb_field;
-          x_field.name = "x";
-          x_field.offset = 0;
-          x_field.datatype = sensor_msgs::msg::PointField::FLOAT32;
-          x_field.count = 1;
-          y_field.name = "y";
-          y_field.offset = 4;
-          y_field.datatype = sensor_msgs::msg::PointField::FLOAT32;
-          y_field.count = 1;
-          z_field.name = "z";
-          z_field.offset = 8;
-          z_field.datatype = sensor_msgs::msg::PointField::FLOAT32;
-          z_field.count = 1;
-          rgb_field.name = "rgb";
-          rgb_field.offset = 12;
-          rgb_field.datatype = sensor_msgs::msg::PointField::UINT32;
-          rgb_field.count = 1;
-
-          ros_pointcloud.fields.push_back(x_field);
-          ros_pointcloud.fields.push_back(y_field);
-          ros_pointcloud.fields.push_back(z_field);
-          ros_pointcloud.fields.push_back(rgb_field);
-          ros_pointcloud.point_step = 16;
           ros_pointcloud.row_step =
               ros_pointcloud.point_step * ros_pointcloud.width;
           ros_pointcloud.data.resize(ros_pointcloud.row_step *
                                      ros_pointcloud.height);
-          ros_pointcloud.is_dense = false;
 
-          auto ros_pointcloud_rh_z_up = ros_pointcloud;
-
-          float *data = reinterpret_cast<float *>(ros_pointcloud.data.data());
-          float *data_rh_z_up = reinterpret_cast<float *>(ros_pointcloud_rh_z_up.data.data());
+          // float *data = reinterpret_cast<float *>(ros_pointcloud.data.data());
+          float *data_rh_z_up = reinterpret_cast<float *>(ros_pointcloud.data.data());
 
           sl::float4 point3D;
 
           // use bbox to mask the point cloud
           int index = 0;
+#pragma omp parallel for collapse(2)
           for (int y = bb_y_min; y < bb_y_max; y++)
           {
             for (int x = bb_x_min; x < bb_x_max; x++)
             {
-              if (mask.at<uchar>(y, x) != 0)
+              if (x < 0 || x >= cvImage.cols || y < 0 || y >= cvImage.rows)
               {
                 continue;
               }
-              else
-              {
               // mask original image pixel
               cv::Vec3b &pixel = cvImage.at<cv::Vec3b>(y, x);
-              pixel[2] = 255;
+              // pixel[2] = 255;
               point_cloud.getValue(x, y, &point3D);
-              if (index < ros_pointcloud.width * ros_pointcloud.height)
-              {
-                data[index * 4 + 0] = point3D.x / 1000.0;
-                data[index * 4 + 1] = point3D.y / 1000.0;
-                data[index * 4 + 2] = point3D.z / 1000.0;
+              // if (index < ros_pointcloud.width * ros_pointcloud.height)
+              // {
+              data_rh_z_up[index * 4 + 0] = point3D.z / 1000.0;
+              data_rh_z_up[index * 4 + 1] = -point3D.x / 1000.0;
+              data_rh_z_up[index * 4 + 2] = point3D.y / 1000.0;
 
-                data_rh_z_up[index * 4 + 0] = point3D.z / 1000.0;
-                data_rh_z_up[index * 4 + 1] = -point3D.x / 1000.0;
-                data_rh_z_up[index * 4 + 2] = point3D.y / 1000.0;
-
-                uint32_t rgb = *reinterpret_cast<uint32_t *>(&point3D.w);
-                // convert from ABGR to RGBA
-                rgb = ((rgb & 0x000000FF) << 16) | ((rgb & 0x0000FF00)) |
-                      ((rgb & 0x00FF0000) >> 16);
-                std::memcpy(&data[index * 4 + 3], &rgb, 4);
-                std::memcpy(&data_rh_z_up[index * 4 + 3], &rgb, 4);
-                index++;
-              }
-              }
+              uint32_t rgb = *reinterpret_cast<uint32_t *>(&point3D.w);
+              // convert from ABGR to RGBA
+              rgb = ((rgb & 0x000000FF) << 16) | ((rgb & 0x0000FF00)) |
+                    ((rgb & 0x00FF0000) >> 16);
+              std::memcpy(&data_rh_z_up[index * 4 + 3], &rgb, 4);
+              index++;
             }
+            // }
           }
+          // }
           // draw bounding box
-          cv::rectangle(cvImage, cv::Point(bb_x_min, bb_y_min),
-                        cv::Point(bb_x_max, bb_y_max), cv::Scalar(255, 0, 0),
-                        3);
-          cv::resize(cvImage, cvImage, cv::Size(), 0.5, 0.5);
-          cv::imshow("video", cvImage);
+          cv::Mat vis = cvImage.clone();
+          // cv::rectangle(vis, cv::Point(bb_x_min, bb_y_min),
+          //               cv::Point(bb_x_max, bb_y_max), cv::Scalar(255, 0, 0),
+          //               3);
+          cv::resize(vis, vis, cv::Size(), 0.7, 0.7);
+          cv::flip(vis, vis, 1);
+          cv::imshow("video", vis);
           cv::waitKey(1);
-          point_cloud_pub->publish(ros_pointcloud);
-          point_cloud_pub_rh_z_up->publish(ros_pointcloud_rh_z_up);
+          // point_cloud_pub->publish(ros_pointcloud);
+          point_cloud_pub_rh_z_up->publish(ros_pointcloud);
+
+          
+          
+          // publish RGB image
+          std_msgs::msg::Header header;
+          header.stamp = node->now();
+
+          auto ros_image = cv_bridge::CvImage(header, sensor_msgs::image_encodings::BGR8, cvImage);
+          sensor_msgs::msg::Image img_msg;
+          ros_image.toImageMsg(img_msg);
+
+          image_pub->publish(img_msg);
+          // clear 
+          ros_pointcloud.data.clear();
+          ros_image.image.release();
         }
         catch (SocketException &e)
         {

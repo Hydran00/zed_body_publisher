@@ -2,6 +2,7 @@ cmake_minimum_required(VERSION 3.8)
 project(zed_body_publisher)
 
 if(CMAKE_COMPILER_IS_GNUCXX OR CMAKE_CXX_COMPILER_ID MATCHES "Clang")
+    # also add omp
   add_compile_options(-Wall -Wextra -Wno-pedantic -Wno-deprecated-copy -Wno-sign-compare)
 endif()
 
@@ -17,6 +18,13 @@ find_package(sensor_msgs REQUIRED)
 find_package(segmentation_srvs REQUIRED)
 # cv_bridge
 find_package(cv_bridge REQUIRED)
+find_package(OpenMP)
+
+if (OPENMP_FOUND)
+    set (CMAKE_C_FLAGS "${CMAKE_C_FLAGS} ${OpenMP_C_FLAGS}")
+    set (CMAKE_CXX_FLAGS "${CMAKE_CXX_FLAGS} ${OpenMP_CXX_FLAGS}")
+    set (CMAKE_EXE_LINKER_FLAGS "${CMAKE_EXE_LINKER_FLAGS} ${OpenMP_EXE_LINKER_FLAGS}")
+endif()
 
 option(LINK_SHARED_ZED "Link with the ZED SDK shared executable" ON)
 option(ENABLE_GUI "Enable OpenGL/ OpenCV display" ON)

@@ -79,44 +79,41 @@ nlohmann::json bodyDataToJson(sl::BodyData body)
   nlohmann::json res;
 
   res["id"] = body.id;
-  // res["unique_object_id"] = body.unique_object_id.get();
   res["tracking_state"] = body.tracking_state;
   res["action_state"] = body.action_state;
   res["position"] = nlohmann::json::object();
-  res["position"]["x"] = isnan(body.position.x) ? 0 : body.position.x / 1000;
-  res["position"]["y"] = isnan(body.position.y) ? 0 : body.position.y / 1000;
-  res["position"]["z"] = isnan(body.position.z) ? 0 : body.position.z / 1000;
+  res["position"]["x"] = isnan(body.position.x) ? 0 : body.position.x;
+  res["position"]["y"] = isnan(body.position.y) ? 0 : -body.position.y; // Flip Y for LH
+  res["position"]["z"] = isnan(body.position.z) ? 0 : body.position.z;
 
   res["velocity"] = nlohmann::json::object();
-  res["velocity"]["x"] = isnan(body.velocity.x) ? 0 : body.velocity.x / 1000;
-  res["velocity"]["y"] = isnan(body.velocity.y) ? 0 : body.velocity.y / 1000;
-  res["velocity"]["z"] = isnan(body.velocity.z) ? 0 : body.velocity.z / 1000;
+  res["velocity"]["x"] = isnan(body.velocity.x) ? 0 : body.velocity.x;
+  res["velocity"]["y"] = isnan(body.velocity.y) ? 0 : -body.velocity.y; // Flip Y for LH
+  res["velocity"]["z"] = isnan(body.velocity.z) ? 0 : body.velocity.z;
 
   res["confidence"] = isnan(body.confidence) ? 0 : body.confidence;
   res["bounding_box"] = nlohmann::json::array();
   for (auto &i : body.bounding_box)
   {
     nlohmann::json e;
-    e["x"] = isnan(i.x) ? 0 : i.x / 1000;
-    e["y"] = isnan(i.y) ? 0 : i.y / 1000;
-    e["z"] = isnan(i.z) ? 0 : i.z / 1000;
+    e["x"] = isnan(i.x) ? 0 : i.x;
+    e["y"] = isnan(i.y) ? 0 : -i.y; // Flip Y for LH
+    e["z"] = isnan(i.z) ? 0 : i.z;
     res["bounding_box"].push_back(e);
   }
+
   res["dimensions"] = nlohmann::json::object();
-  res["dimensions"]["x"] =
-      isnan(body.dimensions.x) ? 0 : body.dimensions.x / 1000;
-  res["dimensions"]["y"] =
-      isnan(body.dimensions.y) ? 0 : body.dimensions.y / 1000;
-  res["dimensions"]["z"] =
-      isnan(body.dimensions.z) ? 0 : body.dimensions.z / 1000;
+  res["dimensions"]["x"] = isnan(body.dimensions.x) ? 0 : body.dimensions.x;
+  res["dimensions"]["y"] = isnan(body.dimensions.y) ? 0 : body.dimensions.y;
+  res["dimensions"]["z"] = isnan(body.dimensions.z) ? 0 : body.dimensions.z;
 
   res["keypoint"] = nlohmann::json::array();
   for (auto &i : body.keypoint)
   {
     nlohmann::json e;
-    e["x"] = isnan(i.x) ? 0 : i.x / 1000;
-    e["y"] = isnan(i.y) ? 0 : i.y / 1000;
-    e["z"] = isnan(i.z) ? 0 : i.z / 1000;
+    e["x"] = isnan(i.x) ? 0 : i.x;
+    e["y"] = isnan(i.y) ? 0 : -i.y; // Flip Y for LH
+    e["z"] = isnan(i.z) ? 0 : i.z;
     res["keypoint"].push_back(e);
   }
 
@@ -125,38 +122,34 @@ nlohmann::json bodyDataToJson(sl::BodyData body)
   {
     res["keypoint_confidence"].push_back(isnan(i) ? 0 : i);
   }
+
   res["local_position_per_joint"] = nlohmann::json::array();
   for (auto &i : body.local_position_per_joint)
   {
     nlohmann::json e;
-    e["x"] = isnan(i.x) ? 0 : i.x / 1000;
-    e["y"] = isnan(i.y) ? 0 : i.y / 1000;
-    e["z"] = isnan(i.z) ? 0 : i.z / 1000;
+    e["x"] = isnan(i.x) ? 0 : i.x;
+    e["y"] = isnan(i.y) ? 0 : -i.y; // Flip Y for LH
+    e["z"] = isnan(i.z) ? 0 : i.z;
     res["local_position_per_joint"].push_back(e);
   }
+
   res["local_orientation_per_joint"] = nlohmann::json::array();
   for (auto &i : body.local_orientation_per_joint)
   {
     nlohmann::json e;
     e["x"] = isnan(i.x) ? 42 : i.x;
-    e["y"] = isnan(i.y) ? 42 : i.y;
-    e["z"] = isnan(i.z) ? 42 : i.z;
-    e["w"] = isnan(i.w) ? 42 : i.w;
+    e["y"] = isnan(i.y) ? 42 : -i.y; // Flip Y for LH
+    e["z"] = isnan(i.z) ? 42 : i.z; // Flip Z for LH
+    e["w"] = isnan(i.w) ? 42 : -i.w;
     res["local_orientation_per_joint"].push_back(e);
   }
+
   res["global_root_orientation"] = nlohmann::json::object();
-  res["global_root_orientation"]["x"] = isnan(body.global_root_orientation.x)
-                                            ? 0
-                                            : body.global_root_orientation.x;
-  res["global_root_orientation"]["y"] = isnan(body.global_root_orientation.y)
-                                            ? 0
-                                            : body.global_root_orientation.y;
-  res["global_root_orientation"]["z"] = isnan(body.global_root_orientation.z)
-                                            ? 0
-                                            : body.global_root_orientation.z;
-  res["global_root_orientation"]["w"] = isnan(body.global_root_orientation.w)
-                                            ? 0
-                                            : body.global_root_orientation.w;
+  res["global_root_orientation"]["x"] = isnan(body.global_root_orientation.x) ? 0 : body.global_root_orientation.x;
+  res["global_root_orientation"]["y"] = isnan(body.global_root_orientation.y) ? 0 : -body.global_root_orientation.y; // Flip Y for LH
+  res["global_root_orientation"]["z"] = isnan(body.global_root_orientation.z) ? 0 : body.global_root_orientation.z; // Flip Z for LH
+  res["global_root_orientation"]["w"] = isnan(body.global_root_orientation.w) ? 0 : -body.global_root_orientation.w;
+
   return res;
 }
 // Create the json sent to the clients

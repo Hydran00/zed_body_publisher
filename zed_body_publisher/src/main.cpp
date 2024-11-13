@@ -46,23 +46,13 @@ int main(int argc, char **argv)
   rgb_field.offset = 12;
   rgb_field.datatype = sensor_msgs::msg::PointField::UINT32;
   rgb_field.count = 1;
-  sensor_msgs::msg::PointCloud2 ros_pointcloud;
-  ros_pointcloud.header.frame_id = "zed2_left_camera_frame";
-  ros_pointcloud.fields.push_back(x_field);
-  ros_pointcloud.fields.push_back(y_field);
-  ros_pointcloud.fields.push_back(z_field);
-  ros_pointcloud.fields.push_back(rgb_field);
-  ros_pointcloud.point_step = 16;
-  ros_pointcloud.is_dense = false;
-  ros_pointcloud.is_bigendian = false;
-  ros_pointcloud.is_dense = false;
   auto point_cloud_msg = std::make_shared<sensor_msgs::msg::PointCloud2>();
   point_cloud_msg->fields.push_back(x_field);
   point_cloud_msg->fields.push_back(y_field);
   point_cloud_msg->fields.push_back(z_field);
   point_cloud_msg->fields.push_back(rgb_field);
   point_cloud_msg->header.stamp = node->now();
-  point_cloud_msg->header.frame_id = "zed2_left_camera_frame";
+  point_cloud_msg->header.frame_id = "camera_link";
   point_cloud_msg->is_dense = false;
   point_cloud_msg->is_bigendian = false;
   point_cloud_msg->point_step = 16; // 4 floats (x, y, z, rgba)
@@ -75,8 +65,9 @@ int main(int argc, char **argv)
   init_parameters.camera_resolution = RESOLUTION::HD720;
   init_parameters.camera_fps = 30;
   init_parameters.depth_mode = DEPTH_MODE::NEURAL;
-  // init_parameters.coordinate_system = COORDINATE_SYSTEM::RIGHT_HANDED_Z_UP_X_FWD;
-  init_parameters.coordinate_system = COORDINATE_SYSTEM::LEFT_HANDED_Y_UP;
+  // init_parameters.coordinate_system = COORDINATE_SYSTEM::LEFT_HANDED_Y_UP;
+  init_parameters.coordinate_system = COORDINATE_SYSTEM::IMAGE;
+  init_parameters.coordinate_units = UNIT::METER;
   init_parameters.svo_real_time_mode = true;
 
   parseArgsMonoCam(argc, argv, init_parameters);
@@ -219,12 +210,14 @@ int main(int argc, char **argv)
                    ((abgr & 0x0000FF00)) | ((abgr & 0x00FF0000) >> 16);
           };
 #pragma omp parallel for
-          for (size_t i = 0; i < point_cloud_msg->width * point_cloud_msg->height; ++i)
+          for (size_t i = 0; i < point_cloud_msg->width * point_cloud_msg->height; i++)
           {
             size_t offset = i * point_cloud_msg->point_step;
-            float x = zed_data_ptr[i * 4 + 0] / 1000.0f; // Scale X
-            float y = zed_data_ptr[i * 4 + 1] / 1000.0f; // Scale Y
-            float z = zed_data_ptr[i * 4 + 2] / 1000.0f; // Scale Z
+
+            // Convert from left-handed Y-up to right-handed Y-down for ROS
+            float x = zed_data_ptr[i * 4 + 0];
+            float y = zed_data_ptr[i * 4 + 1];
+            float z = zed_data_ptr[i * 4 + 2];
 
             // Convert ABGR to RGB
             uint32_t rgb = convertABGRtoRGB(*reinterpret_cast<uint32_t *>(&zed_data_ptr[i * 4 + 3]));
@@ -255,7 +248,7 @@ int main(int argc, char **argv)
 
           image_pub->publish(img_msg);
           // clear
-          ros_pointcloud.data.clear();
+          point_cloud_msg->data.clear();
           ros_image.image.release();
         }
         catch (SocketException &e)

@@ -16,6 +16,7 @@
 #include "utils.hpp"
 // cvbridge
 #include <cv_bridge/cv_bridge.h>
+
 using namespace sl;
 using namespace std::chrono_literals;
 
@@ -28,6 +29,7 @@ int main(int argc, char **argv)
   auto point_cloud_pub_rh_z_up =
       node->create_publisher<sensor_msgs::msg::PointCloud2>("/zed/zed_node/point_cloud_rh_z_up", 1);
   auto image_pub = node->create_publisher<sensor_msgs::msg::Image>("/zed/zed_node/image_rect_color", 1);
+  auto marker_pub = node->create_publisher<visualization_msgs::msg::MarkerArray>("/zed/human_keypoints", 1);
 
   sensor_msgs::msg::PointField x_field, y_field, z_field, rgb_field;
   x_field.name = "x";
@@ -67,6 +69,7 @@ int main(int argc, char **argv)
   init_parameters.depth_mode = DEPTH_MODE::NEURAL;
   // init_parameters.coordinate_system = COORDINATE_SYSTEM::LEFT_HANDED_Y_UP;
   init_parameters.coordinate_system = COORDINATE_SYSTEM::IMAGE;
+  // init_parameters.coordinate_system = COORDINATE_SYSTEM::RIGHT_HANDED_Z_UP;
   init_parameters.coordinate_units = UNIT::METER;
   init_parameters.svo_real_time_mode = true;
 
@@ -173,6 +176,7 @@ int main(int argc, char **argv)
 
       if (bodies.is_new)
       {
+        publishKeypointMarkers(bodies, marker_pub, node);
         try
         {
           double distance_to_camera = std::numeric_limits<double>::max();

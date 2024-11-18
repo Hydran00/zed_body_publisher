@@ -16,6 +16,7 @@ find_package(ament_cmake REQUIRED)
 find_package(rclcpp REQUIRED)
 find_package(sensor_msgs REQUIRED)
 find_package(segmentation_srvs REQUIRED)
+find_package(visualization_msgs REQUIRED)
 # cv_bridge
 find_package(cv_bridge REQUIRED)
 find_package(OpenMP)
@@ -76,7 +77,7 @@ FILE(GLOB_RECURSE HDR_FILES include/*.h*)
 
 add_executable(${PROJECT_NAME} ${HDR_FILES} ${SRC_FILES})
 
-ament_target_dependencies(${PROJECT_NAME} rclcpp sensor_msgs cv_bridge segmentation_srvs)
+ament_target_dependencies(${PROJECT_NAME} rclcpp sensor_msgs cv_bridge segmentation_srvs visualization_msgs)
 if (LINK_SHARED_ZED)
     SET(ZED_LIBS ${ZED_LIBRARIES} ${CUDA_CUDA_LIBRARY} ${CUDA_CUDART_LIBRARY})
 else()

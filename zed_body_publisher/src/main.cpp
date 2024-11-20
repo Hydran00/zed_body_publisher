@@ -14,6 +14,7 @@
 #include "sensor_msgs/point_cloud2_iterator.hpp"
 #include "sensor_msgs/msg/image.hpp"
 #include "utils.hpp"
+#include "visualization_msgs/msg/marker_array.hpp"
 // cvbridge
 #include <cv_bridge/cv_bridge.h>
 
@@ -176,7 +177,7 @@ int main(int argc, char **argv)
 
       if (bodies.is_new)
       {
-        publishKeypointMarkers(bodies, marker_pub, node);
+        // publishKeypointMarkers(bodies, marker_pub, node);
         try
         {
           double distance_to_camera = std::numeric_limits<double>::max();

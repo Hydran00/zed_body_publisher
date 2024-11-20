@@ -6,8 +6,9 @@
 #include <sl/Camera.hpp>
 #include "json.hpp"
 #include "visualization_msgs/msg/marker_array.hpp"
-
+// eigen
 #endif
+#include <eigen3/Eigen/Dense>
 using namespace sl;
 int clip(const int &n, const int &lower, const int &upper)
 {
@@ -152,6 +153,7 @@ nlohmann::json bodyDataToJson(sl::BodyData body)
   res["global_root_orientation"]["y"] = isnan(body.global_root_orientation.y) ? 0 : body.global_root_orientation.y; // Flip Y for LH
   res["global_root_orientation"]["z"] = isnan(body.global_root_orientation.z) ? 0 : body.global_root_orientation.z; // Flip Z for LH
   res["global_root_orientation"]["w"] = isnan(body.global_root_orientation.w) ? 0 : body.global_root_orientation.w;
+  // create Euler angles
 
   return res;
 }

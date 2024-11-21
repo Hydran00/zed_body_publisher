@@ -87,12 +87,12 @@ nlohmann::json bodyDataToJson(sl::BodyData body)
   res["action_state"] = body.action_state;
   res["position"] = nlohmann::json::object();
   res["position"]["x"] = isnan(body.position.x) ? 0 : body.position.x;
-  res["position"]["y"] = isnan(body.position.y) ? 0 : body.position.y; // Flip Y for LH
+  res["position"]["y"] = isnan(body.position.y) ? 0 : body.position.y;
   res["position"]["z"] = isnan(body.position.z) ? 0 : body.position.z;
 
   res["velocity"] = nlohmann::json::object();
   res["velocity"]["x"] = isnan(body.velocity.x) ? 0 : body.velocity.x;
-  res["velocity"]["y"] = isnan(body.velocity.y) ? 0 : body.velocity.y; // Flip Y for LH
+  res["velocity"]["y"] = isnan(body.velocity.y) ? 0 : body.velocity.y;
   res["velocity"]["z"] = isnan(body.velocity.z) ? 0 : body.velocity.z;
 
   res["confidence"] = isnan(body.confidence) ? 0 : body.confidence;
@@ -101,7 +101,7 @@ nlohmann::json bodyDataToJson(sl::BodyData body)
   {
     nlohmann::json e;
     e["x"] = isnan(i.x) ? 0 : i.x;
-    e["y"] = isnan(i.y) ? 0 : i.y; // Flip Y for LH
+    e["y"] = isnan(i.y) ? 0 : i.y;
     e["z"] = isnan(i.z) ? 0 : i.z;
     res["bounding_box"].push_back(e);
   }
@@ -116,7 +116,7 @@ nlohmann::json bodyDataToJson(sl::BodyData body)
   {
     nlohmann::json e;
     e["x"] = isnan(i.x) ? 0 : i.x;
-    e["y"] = isnan(i.y) ? 0 : i.y; // Flip Y for LH
+    e["y"] = isnan(i.y) ? 0 : i.y;
     e["z"] = isnan(i.z) ? 0 : i.z;
     res["keypoint"].push_back(e);
   }
@@ -132,12 +132,14 @@ nlohmann::json bodyDataToJson(sl::BodyData body)
   {
     nlohmann::json e;
     e["x"] = isnan(i.x) ? 0 : i.x;
-    e["y"] = isnan(i.y) ? 0 : i.y; // Flip Y for LH
+    e["y"] = isnan(i.y) ? 0 : i.y;
     e["z"] = isnan(i.z) ? 0 : i.z;
     res["local_position_per_joint"].push_back(e);
   }
 
   res["local_orientation_per_joint"] = nlohmann::json::array();
+
+  int a = 0;
   for (auto &i : body.local_orientation_per_joint)
   {
     nlohmann::json e;
@@ -146,11 +148,31 @@ nlohmann::json bodyDataToJson(sl::BodyData body)
     e["z"] = isnan(i.z) ? 42 : i.z;
     e["w"] = isnan(i.w) ? 42 : i.w;
     res["local_orientation_per_joint"].push_back(e);
+    auto toDeg = [](float x)
+    { return x * 180.0 / M_PI; };
+    if (a == 14)
+    {
+      // std::cout << "local_orientation_per_joint: x: " << i.x << " y: " << i.y << " z: " << i.z << " w: " << i.w << std::endl;
+      // convert to euler and degrees
+      Eigen::Quaternionf q(i.w, i.x, i.y, i.z);
+      Eigen::Vector3f euler = q.toRotationMatrix().eulerAngles(0, 1, 2);
+      std::cout << "Left elbow: " << toDeg(euler[0]) << " " << toDeg(euler[1]) << " " << toDeg(euler[2]) << std::endl;
+    }
+    if (a == 15)
+    {
+      // std::cout << "local_orientation_per_joint: x: " << i.x << " y: " << i.y << " z: " << i.z << " w: " << i.w << std::endl;
+      // convert to euler and degrees
+      Eigen::Quaternionf q(i.w, i.x, i.y, i.z);
+      Eigen::Vector3f euler = q.toRotationMatrix().eulerAngles(0, 1, 2);
+      std::cout << "Right elbow: " << toDeg(euler[0]) << " " << toDeg(euler[1]) << " " << toDeg(euler[2]) << std::endl;
+    }
+    a++;
   }
+    std::cout<<"----------------------"<<std::endl;
 
   res["global_root_orientation"] = nlohmann::json::object();
   res["global_root_orientation"]["x"] = isnan(body.global_root_orientation.x) ? 0 : body.global_root_orientation.x;
-  res["global_root_orientation"]["y"] = isnan(body.global_root_orientation.y) ? 0 : body.global_root_orientation.y; // Flip Y for LH
+  res["global_root_orientation"]["y"] = isnan(body.global_root_orientation.y) ? 0 : body.global_root_orientation.y;
   res["global_root_orientation"]["z"] = isnan(body.global_root_orientation.z) ? 0 : body.global_root_orientation.z; // Flip Z for LH
   res["global_root_orientation"]["w"] = isnan(body.global_root_orientation.w) ? 0 : body.global_root_orientation.w;
   // create Euler angles
@@ -222,43 +244,43 @@ void publishKeypointMarkers(
 
   visualization_msgs::msg::MarkerArray marker_array;
 
-  for (size_t body_idx = 0; body_idx < bodies.body_list.size(); ++body_idx)
+  // for (size_t body_idx = 0; body_idx < bodies.body_list.size(); ++body_idx)
+  // {
+  const auto &body = bodies.body_list[0];
+
+  for (size_t kp_idx = 0; kp_idx < body.keypoint.size(); ++kp_idx)
   {
-    const auto &body = bodies.body_list[body_idx];
+    const auto &keypoint = body.keypoint[kp_idx];
 
-    for (size_t kp_idx = 0; kp_idx < body.keypoint.size(); ++kp_idx)
+    // Only process valid keypoints
+    if (std::isfinite(keypoint.x) && std::isfinite(keypoint.y) && std::isfinite(keypoint.z))
     {
-      const auto &keypoint = body.keypoint[kp_idx];
+      visualization_msgs::msg::Marker marker;
+      marker.header.frame_id = "camera_link";
+      marker.header.stamp = node->now();
+      marker.ns = "human_keypoints";
+      marker.id = 0 * 100 + kp_idx; // Unique ID for each marker
+      marker.type = visualization_msgs::msg::Marker::SPHERE;
+      marker.action = visualization_msgs::msg::Marker::ADD;
+      marker.pose.position.x = keypoint.x;
+      marker.pose.position.y = keypoint.y;
+      marker.pose.position.z = keypoint.z;
+      marker.pose.orientation.x = 0.0;
+      marker.pose.orientation.y = 0.0;
+      marker.pose.orientation.z = 0.0;
+      marker.pose.orientation.w = 1.0;
+      marker.scale.x = 0.05; // Size of the sphere
+      marker.scale.y = 0.05;
+      marker.scale.z = 0.05;
+      marker.color.a = 1.0; // Fully opaque
+      marker.color.r = 0.0;
+      marker.color.g = 1.0;
+      marker.color.b = 0.0; // Green for keypoints
 
-      // Only process valid keypoints
-      if (std::isfinite(keypoint.x) && std::isfinite(keypoint.y) && std::isfinite(keypoint.z))
-      {
-        visualization_msgs::msg::Marker marker;
-        marker.header.frame_id = "camera_link";
-        marker.header.stamp = node->now();
-        marker.ns = "human_keypoints";
-        marker.id = body_idx * 100 + kp_idx; // Unique ID for each marker
-        marker.type = visualization_msgs::msg::Marker::SPHERE;
-        marker.action = visualization_msgs::msg::Marker::ADD;
-        marker.pose.position.x = keypoint.x;
-        marker.pose.position.y = keypoint.y;
-        marker.pose.position.z = keypoint.z;
-        marker.pose.orientation.x = 0.0;
-        marker.pose.orientation.y = 0.0;
-        marker.pose.orientation.z = 0.0;
-        marker.pose.orientation.w = 1.0;
-        marker.scale.x = 0.05; // Size of the sphere
-        marker.scale.y = 0.05;
-        marker.scale.z = 0.05;
-        marker.color.a = 1.0; // Fully opaque
-        marker.color.r = 0.0;
-        marker.color.g = 1.0;
-        marker.color.b = 0.0; // Green for keypoints
-
-        marker_array.markers.push_back(marker);
-      }
+      marker_array.markers.push_back(marker);
     }
   }
+  // }
 
   // Publish the markers
   marker_pub->publish(marker_array);

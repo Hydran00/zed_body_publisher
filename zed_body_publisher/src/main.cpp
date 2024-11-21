@@ -161,6 +161,10 @@ int main(int argc, char **argv)
       }
       // draw bbox
       zed.retrieveBodies(bodies, body_tracker_parameters_rt);
+
+#if DISPLAY_OGL
+      viewer.updateData(bodies, cam_pose.pose_data);
+#endif
       if (bodies.body_list.size() == 0)
       {
         cv::Mat vis = cvImage.clone();
@@ -171,13 +175,9 @@ int main(int argc, char **argv)
         continue;
       }
 
-#if DISPLAY_OGL
-      viewer.updateData(bodies, cam_pose.pose_data);
-#endif
-
       if (bodies.is_new)
       {
-        // publishKeypointMarkers(bodies, marker_pub, node);
+        publishKeypointMarkers(bodies, marker_pub, node);
         try
         {
           double distance_to_camera = std::numeric_limits<double>::max();

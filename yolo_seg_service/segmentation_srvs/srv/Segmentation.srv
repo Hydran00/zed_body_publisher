@@ -1,5 +1,0 @@
-sensor_msgs/Image req
----
-bool found_human
-sensor_msgs/Image mask
-int32[4] bbox # xmin, ymin, xmax, ymax (left, top, right, bottom)

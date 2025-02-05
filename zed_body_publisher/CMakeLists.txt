@@ -8,15 +8,20 @@ endif()
 set(CMAKE_CXXFLAGS "-std=c++14")
 set(CMAKE_CXX_STANDARD 14)
 set(CMAKE_CXX_STANDARD_REQUIRED ON)
-SET(CMAKE_BUILD_TYPE "Release")
+set(CMAKE_BUILD_TYPE "Release")
+set(ONNXRUNTIME_DIR "/opt/onnxruntime")
+find_library(ONNXRUNTIME_LIB NAMES onnxruntime PATHS ${ONNXRUNTIME_DIR}/lib)
+include_directories(${ONNXRUNTIME_DIR}/include)
+
+
 
 # find dependencies
 find_package(ament_cmake REQUIRED)
 find_package(rclcpp REQUIRED)
 find_package(sensor_msgs REQUIRED)
 find_package(segmentation_srvs REQUIRED)
+
 # cv_bridge
-find_package(cv_bridge REQUIRED)
 
 option(LINK_SHARED_ZED "Link with the ZED SDK shared executable" ON)
 option(ENABLE_GUI "Enable OpenGL/ OpenCV display" ON)
@@ -40,6 +45,7 @@ include_directories(${CUDA_INCLUDE_DIRS})
 include_directories(${ZED_INCLUDE_DIRS})
 include_directories(${COMMON_DIR})
 include_directories(${CMAKE_CURRENT_SOURCE_DIR}/include)
+include_directories(${CMAKE_CURRENT_SOURCE_DIR}/include/yolov8)
 include_directories(${OpenCV_INCLUDE_DIRS})
 
 link_directories(${ZED_LIBRARY_DIR})
@@ -68,7 +74,7 @@ FILE(GLOB_RECURSE HDR_FILES include/*.h*)
 
 add_executable(${PROJECT_NAME} ${HDR_FILES} ${SRC_FILES})
 
-ament_target_dependencies(${PROJECT_NAME} rclcpp sensor_msgs cv_bridge segmentation_srvs)
+ament_target_dependencies(${PROJECT_NAME} rclcpp sensor_msgs segmentation_srvs)
 if (LINK_SHARED_ZED)
     SET(ZED_LIBS ${ZED_LIBRARIES} ${CUDA_CUDA_LIBRARY} ${CUDA_CUDART_LIBRARY})
 else()

@@ -6,56 +6,72 @@
 // ROS2 includes
 #include <rclcpp/rclcpp.hpp>
 // executor
-#include "rclcpp/visibility_control.hpp"
 #include "GLViewer.hpp"
 #include "PracticalSocket.h"
+#include "rclcpp/visibility_control.hpp"
 #include "segmentation_srvs/srv/segmentation.hpp"
 #include "sensor_msgs/msg/point_cloud2.hpp"
 #include "sensor_msgs/point_cloud2_iterator.hpp"
 #include "utils.hpp"
-// cvbridge
-#include <cv_bridge/cv_bridge.h>
+#include "yolov8/yolov8_seg.h"
+
 using namespace sl;
 using namespace std::chrono_literals;
 
-int main(int argc, char **argv)
-{
+int main(int argc, char **argv) {
   // Initialize ROS2
   rclcpp::init(argc, argv);
   auto node = rclcpp::Node::make_shared("zed_body_publisher");
   auto point_cloud_pub =
       node->create_publisher<sensor_msgs::msg::PointCloud2>("point_cloud", 1);
   auto point_cloud_pub_rh_z_up =
-      node->create_publisher<sensor_msgs::msg::PointCloud2>("point_cloud_rh_z_up", 1);
-  auto segmentation_client =
-      node->create_client<segmentation_srvs::srv::Segmentation>("human_mask");
-  while (!segmentation_client->wait_for_service(2s))
-  {
-    if (!rclcpp::ok())
-    {
-      RCLCPP_ERROR(node->get_logger(), "Interrupted while waiting for the service. Exiting.");
-      return 0;
-    }
-    RCLCPP_INFO(node->get_logger(), "Segmentation service not available, waiting again...");
-  }
+      node->create_publisher<sensor_msgs::msg::PointCloud2>(
+          "point_cloud_rh_z_up", 1);
 
-  // cv bridge
-  auto cv_bridge = std::make_shared<cv_bridge::CvImage>();
+  // instantiate yolo model
+  RCLCPP_INFO(node->get_logger(), "Loading YOLOv8 model");
+  srand((unsigned)time(NULL));
+  std::string netPath = "/home/nardi/SKEL_WS/ros2_ws/yolov8s-seg.onnx";
+  cv::dnn::Net net;
+  Yolov8Seg yolov8Seg;
+  if (!yolov8Seg.ReadModel(net, netPath, false)) {
+    std::cout << "ReadModel failed" << std::endl;
+    return -1;
+  }
+  RCLCPP_INFO(node->get_logger(), "YOLOv8 model loaded");
+  // cv::Mat srcImg = cv::imread("/home/nardi/SKEL_WS/ros2_ws/2.jpg");
+  // if (srcImg.empty()) {
+  //   std::cout << "Read image failed" << std::endl;
+  //   return -1;
+  // }
+  // RCLCPP_INFO(node->get_logger(), "Detecting");
+  // std::vector<OutputParams> output;
+  // if (!yolov8Seg.Detect(srcImg, net, output)) {
+  //   std::cout << "Detect failed" << std::endl;
+  //   return -1;
+  // }
+  // for (int i = 0; i < output.size(); ++i) {
+  //   std::cout << "id: " << output[i].id
+  //             << " confidence: " << output[i].confidence
+  //             << " box: " << output[i].box << std::endl;
+  //   cv::imshow("mask", output[i].boxMask);
+  //   cv::waitKey(0);
+  // }
 
   Camera zed;
   InitParameters init_parameters;
   init_parameters.camera_resolution = RESOLUTION::HD720;
   init_parameters.camera_fps = 30;
   init_parameters.depth_mode = DEPTH_MODE::NEURAL;
-  // init_parameters.coordinate_system = COORDINATE_SYSTEM::RIGHT_HANDED_Z_UP_X_FWD;
+  // init_parameters.coordinate_system =
+  // COORDINATE_SYSTEM::RIGHT_HANDED_Z_UP_X_FWD;
   init_parameters.coordinate_system = COORDINATE_SYSTEM::LEFT_HANDED_Y_UP;
   init_parameters.svo_real_time_mode = true;
 
   parseArgsMonoCam(argc, argv, init_parameters);
 
   auto returned_state = zed.open(init_parameters);
-  if (returned_state != ERROR_CODE::SUCCESS)
-  {
+  if (returned_state != ERROR_CODE::SUCCESS) {
     zed.close();
     return EXIT_FAILURE;
   }
@@ -64,8 +80,7 @@ int main(int argc, char **argv)
   // positional_tracking_parameters.set_floor_as_origin = true;
 
   returned_state = zed.enablePositionalTracking(positional_tracking_parameters);
-  if (returned_state != ERROR_CODE::SUCCESS)
-  {
+  if (returned_state != ERROR_CODE::SUCCESS) {
     zed.close();
     return EXIT_FAILURE;
   }
@@ -78,8 +93,7 @@ int main(int argc, char **argv)
       BODY_TRACKING_MODEL::HUMAN_BODY_ACCURATE;
   body_tracker_params.enable_segmentation = true;
   returned_state = zed.enableBodyTracking(body_tracker_params);
-  if (returned_state != ERROR_CODE::SUCCESS)
-  {
+  if (returned_state != ERROR_CODE::SUCCESS) {
     zed.close();
     return EXIT_FAILURE;
   }
@@ -120,11 +134,11 @@ int main(int argc, char **argv)
 
   cv::Mat image;
   auto point_cloud_msg = std::make_shared<sensor_msgs::msg::PointCloud2>();
-  while (rclcpp::ok() && run)
-  {
+  std::vector<OutputParams> output;
+
+  while (rclcpp::ok() && run) {
     auto err = zed.grab(rt_params);
-    if (err == ERROR_CODE::SUCCESS)
-    {
+    if (err == ERROR_CODE::SUCCESS) {
       sl::Mat sl_image;
       zed.retrieveImage(sl_image, VIEW::LEFT);
 
@@ -132,19 +146,16 @@ int main(int argc, char **argv)
                       (sl_image.getChannels() == 1) ? CV_8UC1 : CV_8UC4,
                       sl_image.getPtr<sl::uchar1>(sl::MEM::CPU));
 
-      if (cvImage.channels() == 4)
-      {
+      if (cvImage.channels() == 4) {
         cv::Mat tmpImage;
         cv::cvtColor(cvImage, tmpImage, cv::COLOR_BGRA2BGR);
         cvImage = tmpImage;
       }
       // draw bbox
       zed.retrieveBodies(bodies, body_tracker_parameters_rt);
-      if (bodies.body_list.size() == 0)
-      {
+      if (bodies.body_list.size() == 0) {
         cv::Mat resized = cvImage.clone();
         cv::resize(resized, resized, cv::Size(), 0.5, 0.5);
-        cv::imwrite("image_res.png", resized);
         cv::imshow("video", resized);
         cv::waitKey(1);
         continue;
@@ -154,16 +165,12 @@ int main(int argc, char **argv)
       viewer.updateData(bodies, cam_pose.pose_data);
 #endif
 
-      if (bodies.is_new)
-      {
-        try
-        {
+      if (bodies.is_new) {
+        try {
           double distance_to_camera = 1000000000000;
           int closest_body = 0;
-          for (int i = 0; i < bodies.body_list.size(); i++)
-          {
-            if (bodies.body_list[i].position.z < distance_to_camera)
-            {
+          for (int i = 0; i < bodies.body_list.size(); i++) {
+            if (bodies.body_list[i].position.z < distance_to_camera) {
               distance_to_camera = bodies.body_list[i].position.z;
               closest_body = i;
             }
@@ -179,50 +186,32 @@ int main(int argc, char **argv)
           sl::Mat point_cloud;
           zed.retrieveMeasure(point_cloud, sl::MEASURE::XYZRGBA);
 
-          cv::Mat image_req = cvImage.clone();
-          // get mask from service
-          auto request =
-              std::make_shared<segmentation_srvs::srv::Segmentation::Request>();
-          std_msgs::msg::Header header;
-          header.stamp = node->now();
-
-          auto ros_image = cv_bridge::CvImage(
-              header, sensor_msgs::image_encodings::RGB8, image_req);
-          sensor_msgs::msg::Image img_msg;
-          ros_image.toImageMsg(img_msg);
-
-          request->req = img_msg;
-
-          auto result = segmentation_client->async_send_request(request);
-          // wait for the result
-          if (rclcpp::spin_until_future_complete(node->get_node_base_interface(), result, 2s) !=
-              rclcpp::FutureReturnCode::SUCCESS)
-          {
-            RCLCPP_ERROR(node->get_logger(), "Service call failed");
+          if (!yolov8Seg.Detect(cvImage, net, output)) {
+            std::cout << "Detect failed" << std::endl;
+            return -1;
+          }
+          if (output.size() == 0) {
+            std::cout << "No objects detected" << std::endl;
             continue;
           }
-          else
-          {
-            // RCLCPP_INFO(node->get_logger(), "Service call success");
+          int cls_id = -1;
+          for (int it = 0; it < output.size(); it++) {
+            if (output[it].id == 0) {
+              // detected an human
+              cls_id = it;
+              break;
+            }
           }
-
-          auto response = result.get();
-          if (response->found_human == false)
-          {
+          if(cls_id == -1){
+            std::cout << "No human detected" << std::endl;
             continue;
           }
-          cv::Mat mask =
-              cv_bridge::toCvCopy(response->mask, "mono8")->image;
-
-          // cv::imshow("mask", mask);
-          // Bounding box coordinate
-          int bb_x_min = response->bbox[0];
-          int bb_y_min = response->bbox[1];
-          int bb_x_max = response->bbox[2];
-          int bb_y_max = response->bbox[3];
-
-          sl::Mat body_point_cloud(bb_x_max - bb_x_min, bb_y_max - bb_y_min,
-                                   MAT_TYPE::F32_C4, MEM::CPU);
+          cv::Rect box = output[cls_id].box;
+          cv::Mat boxMask = output[cls_id].boxMask;
+          int bb_x_min = box.x;
+          int bb_y_min = box.y;
+          int bb_x_max = box.x + box.width;
+          int bb_y_max = box.y + box.height;
 
           auto ros_pointcloud = sensor_msgs::msg::PointCloud2();
           ros_pointcloud.header.stamp = node->now();
@@ -265,28 +254,23 @@ int main(int argc, char **argv)
           auto ros_pointcloud_rh_z_up = ros_pointcloud;
 
           float *data = reinterpret_cast<float *>(ros_pointcloud.data.data());
-          float *data_rh_z_up = reinterpret_cast<float *>(ros_pointcloud_rh_z_up.data.data());
+          float *data_rh_z_up =
+              reinterpret_cast<float *>(ros_pointcloud_rh_z_up.data.data());
 
           sl::float4 point3D;
 
-          // use bbox to mask the point cloud
+          //   // use bbox to mask the point cloud
           int index = 0;
-          for (int y = bb_y_min; y < bb_y_max; y++)
-          {
-            for (int x = bb_x_min; x < bb_x_max; x++)
-            {
-              if (mask.at<uchar>(y, x) != 0)
-              {
+          for (int y = bb_y_min; y < bb_y_max; y++) {
+            for (int x = bb_x_min; x < bb_x_max; x++) {
+              if (boxMask.at<uchar>(y - bb_y_min, x - bb_x_min) == 0) {
                 continue;
-              }
-              else
-              {
+              } else {
                 // mask original image pixel
                 cv::Vec3b &pixel = cvImage.at<cv::Vec3b>(y, x);
                 pixel[2] = 255;
                 point_cloud.getValue(x, y, &point3D);
-                if (index < ros_pointcloud.width * ros_pointcloud.height)
-                {
+                if (index < ros_pointcloud.width * ros_pointcloud.height) {
                   data[index * 4 + 0] = point3D.x / 1000.0;
                   data[index * 4 + 1] = point3D.y / 1000.0;
                   data[index * 4 + 2] = point3D.z / 1000.0;
@@ -306,7 +290,7 @@ int main(int argc, char **argv)
               }
             }
           }
-          // draw bounding box
+          //   // draw bounding box
           cv::rectangle(cvImage, cv::Point(bb_x_min, bb_y_min),
                         cv::Point(bb_x_max, bb_y_max), cv::Scalar(255, 0, 0),
                         3);
@@ -315,19 +299,13 @@ int main(int argc, char **argv)
           cv::waitKey(1);
           point_cloud_pub->publish(ros_pointcloud);
           point_cloud_pub_rh_z_up->publish(ros_pointcloud_rh_z_up);
-        }
-        catch (SocketException &e)
-        {
+        } catch (SocketException &e) {
           std::cerr << e.what() << std::endl;
         }
       }
-    }
-    else if (err == sl::ERROR_CODE::END_OF_SVOFILE_REACHED)
-    {
+    } else if (err == sl::ERROR_CODE::END_OF_SVOFILE_REACHED) {
       zed.setSVOPosition(0);
-    }
-    else
-    {
+    } else {
     }
 
 #if DISPLAY_OGL

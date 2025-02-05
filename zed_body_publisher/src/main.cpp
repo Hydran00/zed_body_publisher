@@ -275,18 +275,18 @@ int main(int argc, char **argv) {
                   data[index * 4 + 1] = point3D.y / 1000.0;
                   data[index * 4 + 2] = point3D.z / 1000.0;
 
-                  data_rh_z_up[index * 4 + 0] = point3D.z / 1000.0;
-                  data_rh_z_up[index * 4 + 1] = -point3D.x / 1000.0;
-                  data_rh_z_up[index * 4 + 2] = point3D.y / 1000.0;
+                data_rh_z_up[index * 4 + 0] = point3D.z / 1000.0;
+                data_rh_z_up[index * 4 + 1] = -point3D.x / 1000.0;
+                data_rh_z_up[index * 4 + 2] = point3D.y / 1000.0;
 
-                  uint32_t rgb = *reinterpret_cast<uint32_t *>(&point3D.w);
-                  // convert from ABGR to RGBA
-                  rgb = ((rgb & 0x000000FF) << 16) | ((rgb & 0x0000FF00)) |
-                        ((rgb & 0x00FF0000) >> 16);
-                  std::memcpy(&data[index * 4 + 3], &rgb, 4);
-                  std::memcpy(&data_rh_z_up[index * 4 + 3], &rgb, 4);
-                  index++;
-                }
+                uint32_t rgb = *reinterpret_cast<uint32_t *>(&point3D.w);
+                // convert from ABGR to RGBA
+                rgb = ((rgb & 0x000000FF) << 16) | ((rgb & 0x0000FF00)) |
+                      ((rgb & 0x00FF0000) >> 16);
+                std::memcpy(&data[index * 4 + 3], &rgb, 4);
+                std::memcpy(&data_rh_z_up[index * 4 + 3], &rgb, 4);
+                index++;
+              }
               }
             }
           }

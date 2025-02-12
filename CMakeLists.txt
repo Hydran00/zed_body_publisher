@@ -9,17 +9,11 @@ set(CMAKE_CXXFLAGS "-std=c++14")
 set(CMAKE_CXX_STANDARD 14)
 set(CMAKE_CXX_STANDARD_REQUIRED ON)
 set(CMAKE_BUILD_TYPE "Release")
-set(ONNXRUNTIME_DIR "/opt/onnxruntime")
-find_library(ONNXRUNTIME_LIB NAMES onnxruntime PATHS ${ONNXRUNTIME_DIR}/lib)
-include_directories(${ONNXRUNTIME_DIR}/include)
-
-
 
 # find dependencies
 find_package(ament_cmake REQUIRED)
 find_package(rclcpp REQUIRED)
 find_package(sensor_msgs REQUIRED)
-find_package(segmentation_srvs REQUIRED)
 
 # cv_bridge
 
@@ -74,7 +68,7 @@ FILE(GLOB_RECURSE HDR_FILES include/*.h*)
 
 add_executable(${PROJECT_NAME} ${HDR_FILES} ${SRC_FILES})
 
-ament_target_dependencies(${PROJECT_NAME} rclcpp sensor_msgs segmentation_srvs)
+ament_target_dependencies(${PROJECT_NAME} rclcpp sensor_msgs)
 if (LINK_SHARED_ZED)
     SET(ZED_LIBS ${ZED_LIBRARIES} ${CUDA_CUDA_LIBRARY} ${CUDA_CUDART_LIBRARY})
 else()

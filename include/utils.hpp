@@ -156,7 +156,7 @@ nlohmann::json bodyDataToJson(sl::BodyData body)
                                             : body.global_root_orientation.z;
   res["global_root_orientation"]["w"] = isnan(body.global_root_orientation.w)
                                             ? 0
-                                            : body.global_root_orientation.w;
+                                            : body.global_root_orientation.w;                                            
   return res;
 }
 // Create the json sent to the clients
@@ -181,7 +181,6 @@ nlohmann::json getJson(sl::Camera &pcamera, sl::Bodies &bodies,
   {
     bodyData["body_list"].push_back(bodyDataToJson(body));
   }
-
   j["bodies"] = bodyData;
 
   return j;
@@ -211,6 +210,8 @@ nlohmann::json getJson(sl::Camera &pcamera, sl::Bodies &bodies, int id,
   {
     bodyData["body_list"].push_back(bodyDataToJson(bodies.body_list[id]));
   }
+  // std::cout << "Global orientation: " << bodyData["body_list"][0]["global_root_orientation"] << std::endl;
+  // std::cout << "Global position: " << bodyData["body_list"][0]["position"] << std::endl;
 
   j["bodies"] = bodyData;
 

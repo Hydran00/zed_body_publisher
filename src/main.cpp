@@ -9,7 +9,6 @@
 #include "GLViewer.hpp"
 #include "PracticalSocket.h"
 #include "rclcpp/visibility_control.hpp"
-#include "segmentation_srvs/srv/segmentation.hpp"
 #include "sensor_msgs/msg/point_cloud2.hpp"
 #include "sensor_msgs/point_cloud2_iterator.hpp"
 #include "utils.hpp"
@@ -17,6 +16,13 @@
 
 using namespace sl;
 using namespace std::chrono_literals;
+
+void show_resized_img(cv::Mat &img, float scale, std::string name) {
+  cv::Mat resized;
+  cv::resize(img, resized, cv::Size(), scale, scale);
+  cv::imshow(name, resized);
+  cv::waitKey(1);
+}
 
 int main(int argc, char **argv) {
   // Initialize ROS2
@@ -63,9 +69,9 @@ int main(int argc, char **argv) {
   init_parameters.camera_resolution = RESOLUTION::HD720;
   init_parameters.camera_fps = 30;
   init_parameters.depth_mode = DEPTH_MODE::NEURAL;
-  // init_parameters.coordinate_system =
-  // COORDINATE_SYSTEM::RIGHT_HANDED_Z_UP_X_FWD;
-  init_parameters.coordinate_system = COORDINATE_SYSTEM::LEFT_HANDED_Y_UP;
+  init_parameters.coordinate_system =
+      COORDINATE_SYSTEM::RIGHT_HANDED_Z_UP_X_FWD;
+  // init_parameters.coordinate_system = COORDINATE_SYSTEM::LEFT_HANDED_Y_UP;
   init_parameters.svo_real_time_mode = true;
 
   parseArgsMonoCam(argc, argv, init_parameters);
@@ -154,12 +160,11 @@ int main(int argc, char **argv) {
       // draw bbox
       zed.retrieveBodies(bodies, body_tracker_parameters_rt);
       if (bodies.body_list.size() == 0) {
-        cv::Mat resized = cvImage.clone();
-        cv::resize(resized, resized, cv::Size(), 0.5, 0.5);
-        cv::imshow("video", resized);
-        cv::waitKey(1);
+        show_resized_img(cvImage, 0.7, "video");
         continue;
       }
+      // RCLCPP_INFO(node->get_logger(), "Detected %d bodies",
+      //             bodies.body_list.size());
 
 #if DISPLAY_OGL
       viewer.updateData(bodies, cam_pose.pose_data);
@@ -202,8 +207,9 @@ int main(int argc, char **argv) {
               break;
             }
           }
-          if(cls_id == -1){
-            std::cout << "No human detected" << std::endl;
+          if (cls_id == -1) {
+            // std::cout << "No human detected" << std::endl;
+            show_resized_img(cvImage, 0.7, "video");
             continue;
           }
           cv::Rect box = output[cls_id].box;
@@ -275,18 +281,18 @@ int main(int argc, char **argv) {
                   data[index * 4 + 1] = point3D.y / 1000.0;
                   data[index * 4 + 2] = point3D.z / 1000.0;
 
-                data_rh_z_up[index * 4 + 0] = point3D.z / 1000.0;
-                data_rh_z_up[index * 4 + 1] = -point3D.x / 1000.0;
-                data_rh_z_up[index * 4 + 2] = point3D.y / 1000.0;
+                  data_rh_z_up[index * 4 + 0] = point3D.z / 1000.0;
+                  data_rh_z_up[index * 4 + 1] = -point3D.x / 1000.0;
+                  data_rh_z_up[index * 4 + 2] = point3D.y / 1000.0;
 
-                uint32_t rgb = *reinterpret_cast<uint32_t *>(&point3D.w);
-                // convert from ABGR to RGBA
-                rgb = ((rgb & 0x000000FF) << 16) | ((rgb & 0x0000FF00)) |
-                      ((rgb & 0x00FF0000) >> 16);
-                std::memcpy(&data[index * 4 + 3], &rgb, 4);
-                std::memcpy(&data_rh_z_up[index * 4 + 3], &rgb, 4);
-                index++;
-              }
+                  uint32_t rgb = *reinterpret_cast<uint32_t *>(&point3D.w);
+                  // convert from ABGR to RGBA
+                  rgb = ((rgb & 0x000000FF) << 16) | ((rgb & 0x0000FF00)) |
+                        ((rgb & 0x00FF0000) >> 16);
+                  std::memcpy(&data[index * 4 + 3], &rgb, 4);
+                  std::memcpy(&data_rh_z_up[index * 4 + 3], &rgb, 4);
+                  index++;
+                }
               }
             }
           }
@@ -294,9 +300,7 @@ int main(int argc, char **argv) {
           cv::rectangle(cvImage, cv::Point(bb_x_min, bb_y_min),
                         cv::Point(bb_x_max, bb_y_max), cv::Scalar(255, 0, 0),
                         3);
-          cv::resize(cvImage, cvImage, cv::Size(), 0.5, 0.5);
-          cv::imshow("video", cvImage);
-          cv::waitKey(1);
+          show_resized_img(cvImage, 0.7, "video");
           point_cloud_pub->publish(ros_pointcloud);
           point_cloud_pub_rh_z_up->publish(ros_pointcloud_rh_z_up);
         } catch (SocketException &e) {

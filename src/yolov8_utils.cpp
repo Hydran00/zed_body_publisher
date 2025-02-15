@@ -1,7 +1,8 @@
 #pragma once
 #include "yolov8_utils.h"
-// using namespace cv;
-// using namespace std;
+
+// Credits to https://github.com/UNeedCryDear/yolov5-seg-opencv-onnxruntime-cpp
+
 bool CheckParams(int netHeight, int netWidth, const int* netStride,
                  int strideSize) {
   if (netHeight % netStride[strideSize - 1] != 0 ||

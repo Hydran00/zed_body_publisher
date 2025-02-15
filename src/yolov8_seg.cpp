@@ -1,7 +1,6 @@
 #include "yolov8_seg.h"
-// using namespace std;
-// using namespace cv;
-// using namespace cv::dnn;
+
+// Credits to https://github.com/UNeedCryDear/yolov5-seg-opencv-onnxruntime-cpp
 
 bool Yolov8Seg::ReadModel(cv::dnn::Net& net, std::string& netPath,
                           bool isCuda = false) {

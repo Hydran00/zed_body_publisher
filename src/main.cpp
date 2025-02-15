@@ -30,9 +30,6 @@ int main(int argc, char **argv) {
   auto node = rclcpp::Node::make_shared("zed_body_publisher");
   auto point_cloud_pub =
       node->create_publisher<sensor_msgs::msg::PointCloud2>("point_cloud", 1);
-  auto point_cloud_pub_rh_z_up =
-      node->create_publisher<sensor_msgs::msg::PointCloud2>(
-          "point_cloud_rh_z_up", 1);
 
   // instantiate yolo model
   RCLCPP_INFO(node->get_logger(), "Loading YOLOv8 model");
@@ -45,24 +42,6 @@ int main(int argc, char **argv) {
     return -1;
   }
   RCLCPP_INFO(node->get_logger(), "YOLOv8 model loaded");
-  // cv::Mat srcImg = cv::imread("/home/nardi/SKEL_WS/ros2_ws/2.jpg");
-  // if (srcImg.empty()) {
-  //   std::cout << "Read image failed" << std::endl;
-  //   return -1;
-  // }
-  // RCLCPP_INFO(node->get_logger(), "Detecting");
-  // std::vector<OutputParams> output;
-  // if (!yolov8Seg.Detect(srcImg, net, output)) {
-  //   std::cout << "Detect failed" << std::endl;
-  //   return -1;
-  // }
-  // for (int i = 0; i < output.size(); ++i) {
-  //   std::cout << "id: " << output[i].id
-  //             << " confidence: " << output[i].confidence
-  //             << " box: " << output[i].box << std::endl;
-  //   cv::imshow("mask", output[i].boxMask);
-  //   cv::waitKey(0);
-  // }
 
   Camera zed;
   InitParameters init_parameters;
@@ -181,6 +160,36 @@ int main(int argc, char **argv) {
             }
           }
 
+          if (!yolov8Seg.Detect(cvImage, net, output)) {
+            std::cout << "Detect failed" << std::endl;
+            return -1;
+          }
+          if (output.size() == 0) {
+            std::cout << "No objects detected" << std::endl;
+            continue;
+          }
+          int best_idx = -1;
+          double max_mask_area = -1.0;
+          for (int it = 0; it < output.size(); it++) {
+            if (output[it].id == 0) {  // If it's a person
+              double mask_area = cv::countNonZero(
+                  output[it].boxMask);  // Count non-zero mask pixels
+              // store the index of the person with the biggest mask area
+              if (mask_area > max_mask_area) {
+                max_mask_area = mask_area;
+                best_idx = it;
+              }
+            }
+          }
+
+          if (best_idx == -1) {
+            // No human detected
+            show_resized_img(cvImage, 0.7, "video");
+            continue;
+          }
+          cv::Rect box = output[best_idx].box;
+          cv::Mat boxMask = output[best_idx].boxMask;
+
           // continue;
           std::string data_to_send = getJson(zed, bodies, closest_body,
                                              body_tracker_params.body_format)
@@ -191,29 +200,6 @@ int main(int argc, char **argv) {
           sl::Mat point_cloud;
           zed.retrieveMeasure(point_cloud, sl::MEASURE::XYZRGBA);
 
-          if (!yolov8Seg.Detect(cvImage, net, output)) {
-            std::cout << "Detect failed" << std::endl;
-            return -1;
-          }
-          if (output.size() == 0) {
-            std::cout << "No objects detected" << std::endl;
-            continue;
-          }
-          int cls_id = -1;
-          for (int it = 0; it < output.size(); it++) {
-            if (output[it].id == 0) {
-              // detected an human
-              cls_id = it;
-              break;
-            }
-          }
-          if (cls_id == -1) {
-            // std::cout << "No human detected" << std::endl;
-            show_resized_img(cvImage, 0.7, "video");
-            continue;
-          }
-          cv::Rect box = output[cls_id].box;
-          cv::Mat boxMask = output[cls_id].boxMask;
           int bb_x_min = box.x;
           int bb_y_min = box.y;
           int bb_x_max = box.x + box.width;
@@ -257,12 +243,7 @@ int main(int argc, char **argv) {
                                      ros_pointcloud.height);
           ros_pointcloud.is_dense = false;
 
-          auto ros_pointcloud_rh_z_up = ros_pointcloud;
-
           float *data = reinterpret_cast<float *>(ros_pointcloud.data.data());
-          float *data_rh_z_up =
-              reinterpret_cast<float *>(ros_pointcloud_rh_z_up.data.data());
-
           sl::float4 point3D;
 
           //   // use bbox to mask the point cloud
@@ -280,17 +261,11 @@ int main(int argc, char **argv) {
                   data[index * 4 + 0] = point3D.x / 1000.0;
                   data[index * 4 + 1] = point3D.y / 1000.0;
                   data[index * 4 + 2] = point3D.z / 1000.0;
-
-                  data_rh_z_up[index * 4 + 0] = point3D.z / 1000.0;
-                  data_rh_z_up[index * 4 + 1] = -point3D.x / 1000.0;
-                  data_rh_z_up[index * 4 + 2] = point3D.y / 1000.0;
-
                   uint32_t rgb = *reinterpret_cast<uint32_t *>(&point3D.w);
                   // convert from ABGR to RGBA
                   rgb = ((rgb & 0x000000FF) << 16) | ((rgb & 0x0000FF00)) |
                         ((rgb & 0x00FF0000) >> 16);
                   std::memcpy(&data[index * 4 + 3], &rgb, 4);
-                  std::memcpy(&data_rh_z_up[index * 4 + 3], &rgb, 4);
                   index++;
                 }
               }
@@ -302,7 +277,6 @@ int main(int argc, char **argv) {
                         3);
           show_resized_img(cvImage, 0.7, "video");
           point_cloud_pub->publish(ros_pointcloud);
-          point_cloud_pub_rh_z_up->publish(ros_pointcloud_rh_z_up);
         } catch (SocketException &e) {
           std::cerr << e.what() << std::endl;
         }

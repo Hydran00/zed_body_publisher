@@ -26,6 +26,7 @@ bool Yolov8Seg::ReadModel(cv::dnn::Net& net, std::string& netPath,
 
   if (isCuda) {
     // cuda
+    std::cout << "Inference device: GPU" << std::endl;
     net.setPreferableBackend(cv::dnn::DNN_BACKEND_CUDA);
     net.setPreferableTarget(
         cv::dnn::DNN_TARGET_CUDA);  // or DNN_TARGET_CUDA_FP16

@@ -28,24 +28,34 @@ int main(int argc, char **argv) {
   // Initialize ROS2
   rclcpp::init(argc, argv);
   auto node = rclcpp::Node::make_shared("zed_body_publisher");
-  auto point_cloud_pub =
-      node->create_publisher<sensor_msgs::msg::PointCloud2>("point_cloud", 1);
 
   // instantiate yolo model
   RCLCPP_INFO(node->get_logger(), "Loading YOLOv8 model");
   srand((unsigned)time(NULL));
-  std::string netPath = "/home/nardi/SKEL_WS/ros2_ws/yolov8s-seg.onnx";
+
+  // declare parameters
+  node->declare_parameter("yolo_model_path", "./yolov8s-seg.onnx");
+  node->declare_parameter("point_cloud_topic_name", "point_cloud");
+
+  std::string yolo_model_path =
+      node->get_parameter("yolo_model_path").as_string();
+  std::string point_cloud_topic_name =
+      node->get_parameter("point_cloud_topic_name").as_string();
   cv::dnn::Net net;
   Yolov8Seg yolov8Seg;
-  if (!yolov8Seg.ReadModel(net, netPath, false)) {
+  if (!yolov8Seg.ReadModel(net, yolo_model_path, false)) {
     std::cout << "ReadModel failed" << std::endl;
     return -1;
   }
   RCLCPP_INFO(node->get_logger(), "YOLOv8 model loaded");
 
+  auto point_cloud_pub = node->create_publisher<sensor_msgs::msg::PointCloud2>(
+      point_cloud_topic_name, 1);
+  RCLCPP_INFO(node->get_logger(), "Point cloud publisher created on topic %s",
+              point_cloud_topic_name.c_str());
   Camera zed;
   InitParameters init_parameters;
-  init_parameters.camera_resolution = RESOLUTION::HD720;
+  init_parameters.camera_resolution = RESOLUTION::HD1080;
   init_parameters.camera_fps = 30;
   init_parameters.depth_mode = DEPTH_MODE::NEURAL;
   init_parameters.coordinate_system =
@@ -171,9 +181,9 @@ int main(int argc, char **argv) {
           int best_idx = -1;
           double max_mask_area = -1.0;
           for (int it = 0; it < output.size(); it++) {
-            if (output[it].id == 0) {  // If it's a person
+            if (output[it].id == 0) { // If it's a person
               double mask_area = cv::countNonZero(
-                  output[it].boxMask);  // Count non-zero mask pixels
+                  output[it].boxMask); // Count non-zero mask pixels
               // store the index of the person with the biggest mask area
               if (mask_area > max_mask_area) {
                 max_mask_area = mask_area;
@@ -189,6 +199,11 @@ int main(int argc, char **argv) {
           }
           cv::Rect box = output[best_idx].box;
           cv::Mat boxMask = output[best_idx].boxMask;
+          cv::Mat kernel =
+              cv::getStructuringElement(cv::MORPH_RECT, cv::Size(15, 15));
+          cv::Mat erodedMask;
+          cv::erode(boxMask, erodedMask, kernel);
+          // cv::Mat boxMask = erodedMask;  // Use eroded mask for processing
 
           // continue;
           std::string data_to_send = getJson(zed, bodies, closest_body,
@@ -255,18 +270,23 @@ int main(int argc, char **argv) {
               } else {
                 // mask original image pixel
                 cv::Vec3b &pixel = cvImage.at<cv::Vec3b>(y, x);
-                pixel[2] = 255;
-                point_cloud.getValue(x, y, &point3D);
-                if (index < ros_pointcloud.width * ros_pointcloud.height) {
-                  data[index * 4 + 0] = point3D.x / 1000.0;
-                  data[index * 4 + 1] = point3D.y / 1000.0;
-                  data[index * 4 + 2] = point3D.z / 1000.0;
-                  uint32_t rgb = *reinterpret_cast<uint32_t *>(&point3D.w);
-                  // convert from ABGR to RGBA
-                  rgb = ((rgb & 0x000000FF) << 16) | ((rgb & 0x0000FF00)) |
-                        ((rgb & 0x00FF0000) >> 16);
-                  std::memcpy(&data[index * 4 + 3], &rgb, 4);
-                  index++;
+                if (erodedMask.at<uchar>(y - bb_y_min, x - bb_x_min) == 0) {
+                  pixel[0] = 255;
+                  continue;
+                } else {
+                  point_cloud.getValue(x, y, &point3D);
+                  if (index < ros_pointcloud.width * ros_pointcloud.height) {
+                    data[index * 4 + 0] = point3D.x / 1000.0;
+                    data[index * 4 + 1] = point3D.y / 1000.0;
+                    data[index * 4 + 2] = point3D.z / 1000.0;
+                    uint32_t rgb = *reinterpret_cast<uint32_t *>(&point3D.w);
+                    // convert from ABGR to RGBA
+                    rgb = ((rgb & 0x000000FF) << 16) | ((rgb & 0x0000FF00)) |
+                          ((rgb & 0x00FF0000) >> 16);
+                    std::memcpy(&data[index * 4 + 3], &rgb, 4);
+                    index++;
+                  }
+                  pixel[2] = 255;
                 }
               }
             }

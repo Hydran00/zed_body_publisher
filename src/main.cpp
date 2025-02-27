@@ -13,6 +13,7 @@
 #include "sensor_msgs/point_cloud2_iterator.hpp"
 #include "utils.hpp"
 #include "yolov8/yolov8_seg.h"
+#include <cv_bridge/cv_bridge.h>
 
 using namespace sl;
 using namespace std::chrono_literals;
@@ -36,14 +37,19 @@ int main(int argc, char **argv) {
   // declare parameters
   node->declare_parameter("yolo_model_path", "./yolov8s-seg.onnx");
   node->declare_parameter("point_cloud_topic_name", "point_cloud");
+  node->declare_parameter("image_topic_name", "camera_raw");
+  node->declare_parameter("camera_stream", true);
 
   std::string yolo_model_path =
       node->get_parameter("yolo_model_path").as_string();
   std::string point_cloud_topic_name =
       node->get_parameter("point_cloud_topic_name").as_string();
+  std::string image_topic_name =
+      node->get_parameter("image_topic_name").as_string();
+  bool camera_stream = node->get_parameter("camera_stream").as_bool();
   cv::dnn::Net net;
   Yolov8Seg yolov8Seg;
-  if (!yolov8Seg.ReadModel(net, yolo_model_path, false)) {
+  if (!yolov8Seg.ReadModel(net, yolo_model_path, true)) {
     std::cout << "ReadModel failed" << std::endl;
     return -1;
   }
@@ -51,6 +57,15 @@ int main(int argc, char **argv) {
 
   auto point_cloud_pub = node->create_publisher<sensor_msgs::msg::PointCloud2>(
       point_cloud_topic_name, 1);
+  // create RGB camera publisher
+  std::shared_ptr<rclcpp::Publisher<sensor_msgs::msg::Image>> image_pub;
+  if (camera_stream) {
+    RCLCPP_INFO(node->get_logger(), "RGB camera publisher created on topic %s",
+                image_topic_name.c_str());
+    image_pub =
+        node->create_publisher<sensor_msgs::msg::Image>(image_topic_name, 1);
+  }
+
   RCLCPP_INFO(node->get_logger(), "Point cloud publisher created on topic %s",
               point_cloud_topic_name.c_str());
   Camera zed;
@@ -60,12 +75,29 @@ int main(int argc, char **argv) {
   init_parameters.depth_mode = DEPTH_MODE::NEURAL;
   init_parameters.coordinate_system =
       COORDINATE_SYSTEM::RIGHT_HANDED_Z_UP_X_FWD;
+
   // init_parameters.coordinate_system = COORDINATE_SYSTEM::LEFT_HANDED_Y_UP;
   init_parameters.svo_real_time_mode = true;
 
   parseArgsMonoCam(argc, argv, init_parameters);
-
+  // disable self calibration
+  init_parameters.camera_disable_self_calib = true;
   auto returned_state = zed.open(init_parameters);
+  CalibrationParameters calibration_params =
+      zed.getCameraInformation().camera_configuration.calibration_parameters;
+  // Focal length of the left eye in pixels
+  float focal_left_x = calibration_params.left_cam.fx;
+  float focal_left_y = calibration_params.left_cam.fy;
+  float cx = calibration_params.left_cam.cx;
+  float cy = calibration_params.left_cam.cy;
+  // First radial distortion coefficient
+  double *dist = calibration_params.left_cam.disto;
+
+  RCLCPP_INFO(node->get_logger(), "Focal length: %f %f", focal_left_x,
+              focal_left_y);
+  RCLCPP_INFO(node->get_logger(), "Principal point: %f %f", cx, cy);
+  RCLCPP_INFO(node->get_logger(), "Distortion: %f %f %f %f", dist[0], dist[1],
+              dist[2], dist[3]);
   if (returned_state != ERROR_CODE::SUCCESS) {
     zed.close();
     return EXIT_FAILURE;
@@ -150,6 +182,12 @@ int main(int argc, char **argv) {
       zed.retrieveBodies(bodies, body_tracker_parameters_rt);
       if (bodies.body_list.size() == 0) {
         show_resized_img(cvImage, 0.7, "video");
+        if (camera_stream) {
+          auto image_msg =
+              cv_bridge::CvImage(std_msgs::msg::Header(), "bgr8", cvImage)
+                  .toImageMsg();
+          image_pub->publish(*image_msg);
+        }
         continue;
       }
       // RCLCPP_INFO(node->get_logger(), "Detected %d bodies",
@@ -195,12 +233,19 @@ int main(int argc, char **argv) {
           if (best_idx == -1) {
             // No human detected
             show_resized_img(cvImage, 0.7, "video");
+            if (camera_stream) {
+              auto image_msg =
+                  cv_bridge::CvImage(std_msgs::msg::Header(), "bgr8", cvImage)
+                      .toImageMsg();
+              image_pub->publish(*image_msg);
+            }
             continue;
           }
+          cv::Mat img_to_be_published = cvImage.clone();
           cv::Rect box = output[best_idx].box;
           cv::Mat boxMask = output[best_idx].boxMask;
           cv::Mat kernel =
-              cv::getStructuringElement(cv::MORPH_RECT, cv::Size(15, 15));
+              cv::getStructuringElement(cv::MORPH_RECT, cv::Size(20, 20));
           cv::Mat erodedMask;
           cv::erode(boxMask, erodedMask, kernel);
           // cv::Mat boxMask = erodedMask;  // Use eroded mask for processing
@@ -297,6 +342,12 @@ int main(int argc, char **argv) {
                         3);
           show_resized_img(cvImage, 0.7, "video");
           point_cloud_pub->publish(ros_pointcloud);
+          if (camera_stream) {
+            auto image_msg = cv_bridge::CvImage(std_msgs::msg::Header(), "bgr8",
+                                                img_to_be_published)
+                                 .toImageMsg();
+            image_pub->publish(*image_msg);
+          }
         } catch (SocketException &e) {
           std::cerr << e.what() << std::endl;
         }

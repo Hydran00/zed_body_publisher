@@ -1,4 +1,3 @@
-#pragma once
 #include "yolov8_utils.h"
 
 // Credits to https://github.com/UNeedCryDear/yolov5-seg-opencv-onnxruntime-cpp

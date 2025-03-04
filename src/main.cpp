@@ -70,7 +70,7 @@ int main(int argc, char **argv) {
               point_cloud_topic_name.c_str());
   Camera zed;
   InitParameters init_parameters;
-  init_parameters.camera_resolution = RESOLUTION::HD1080;
+  init_parameters.camera_resolution = RESOLUTION::HD2K;
   init_parameters.camera_fps = 30;
   init_parameters.depth_mode = DEPTH_MODE::NEURAL;
   init_parameters.coordinate_system =

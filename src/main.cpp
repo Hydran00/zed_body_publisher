@@ -118,7 +118,7 @@ int main(int argc, char **argv) {
   body_tracker_params.body_format = sl::BODY_FORMAT::BODY_38;
   body_tracker_params.detection_model =
       BODY_TRACKING_MODEL::HUMAN_BODY_ACCURATE;
-  body_tracker_params.enable_segmentation = true;
+  body_tracker_params.enable_segmentation = false;
   returned_state = zed.enableBodyTracking(body_tracker_params);
   if (returned_state != ERROR_CODE::SUCCESS) {
     zed.close();
@@ -210,7 +210,7 @@ int main(int argc, char **argv) {
 
           if (!yolov8Seg.Detect(cvImage, net, output)) {
             std::cout << "Detect failed" << std::endl;
-            return -1;
+            continue;
           }
           if (output.size() == 0) {
             std::cout << "No objects detected" << std::endl;

@@ -53,7 +53,7 @@ int main(int argc, char **argv) {
   cv::dnn::Net net;
   Yolov8Seg yolov8Seg;
   if (!yolov8Seg.ReadModel(net, yolo_model_path, true)) {
-    std::cout << "ReadModel failed" << std::endl;
+    std::cout << "ReadModel failed, is the path correct?" << std::endl;
     return -1;
   }
   RCLCPP_INFO(node->get_logger(), "YOLOv8 model loaded");
@@ -81,7 +81,7 @@ int main(int argc, char **argv) {
               point_cloud_topic_name.c_str());
   Camera zed;
   InitParameters init_parameters;
-  init_parameters.camera_resolution = RESOLUTION::HD2K;
+  init_parameters.camera_resolution = RESOLUTION::HD1080;
   init_parameters.camera_fps = 30;
   init_parameters.depth_mode = DEPTH_MODE::NEURAL;
   init_parameters.coordinate_system =
@@ -184,12 +184,18 @@ int main(int argc, char **argv) {
   ros_pointcloud.is_dense = pcMsg->is_dense = false;
   ros_pointcloud.is_bigendian = pcMsg->is_bigendian = false;
 
+
+  cv::namedWindow("YOLO Segmentation", cv::WINDOW_AUTOSIZE);
+  cv::namedWindow("RGB Image", cv::WINDOW_AUTOSIZE);
+
   while (rclcpp::ok() && run) {
     auto err = zed.grab(rt_params);
     if (err == ERROR_CODE::SUCCESS) {
       sl::Mat sl_image;
       zed.retrieveImage(sl_image, VIEW::LEFT);
-
+      sl::Mat point_cloud;
+      zed.retrieveMeasure(point_cloud, sl::MEASURE::XYZBGRA);
+      
       cv::Mat cvImage(sl_image.getHeight(), sl_image.getWidth(),
                       (sl_image.getChannels() == 1) ? CV_8UC1 : CV_8UC4,
                       sl_image.getPtr<sl::uchar1>(sl::MEM::CPU));
@@ -199,10 +205,29 @@ int main(int argc, char **argv) {
         cv::cvtColor(cvImage, tmpImage, cv::COLOR_BGRA2BGR);
         cvImage = tmpImage;
       }
+      if (full_point_cloud_topic_name != "") {
+        pcMsg->width = point_cloud.getWidth();
+        pcMsg->height = point_cloud.getHeight();
+        sensor_msgs::PointCloud2Modifier modifier2(*(pcMsg.get()));
+        modifier2.setPointCloud2Fields(
+            4, "x", 1, sensor_msgs::msg::PointField::FLOAT32, "y", 1,
+            sensor_msgs::msg::PointField::FLOAT32, "z", 1,
+            sensor_msgs::msg::PointField::FLOAT32, "rgb", 1,
+            sensor_msgs::msg::PointField::FLOAT32);
+
+        sl::Vector4<float> *cpu_cloud = point_cloud.getPtr<sl::float4>();
+        float *ptCloudPtr = reinterpret_cast<float *>(&pcMsg->data[0]);
+        int ptsCount = point_cloud.getWidth() * point_cloud.getHeight();
+        memcpy(ptCloudPtr, reinterpret_cast<float *>(cpu_cloud),
+               ptsCount * 4 * sizeof(float));
+
+        // publish full point cloud
+        full_point_cloud_pub->publish(*pcMsg);
+      }
+      show_resized_img(cvImage, 0.7, "RGB Image");
       // draw bbox
       zed.retrieveBodies(bodies, body_tracker_parameters_rt);
       if (bodies.body_list.size() == 0) {
-        show_resized_img(cvImage, 0.7, "video");
         if (camera_stream) {
           auto image_msg =
               cv_bridge::CvImage(std_msgs::msg::Header(), "bgr8", cvImage)
@@ -253,7 +278,7 @@ int main(int argc, char **argv) {
 
           if (best_idx == -1) {
             // No human detected
-            show_resized_img(cvImage, 0.7, "video");
+            // show_resized_img(cvImage, 0.7, "video");
             if (camera_stream) {
               auto image_msg =
                   cv_bridge::CvImage(std_msgs::msg::Header(), "bgr8", cvImage)
@@ -278,8 +303,6 @@ int main(int argc, char **argv) {
           sock.sendTo(data_to_send.data(), data_to_send.size(), servAddress,
                       servPort);
 
-          sl::Mat point_cloud;
-          zed.retrieveMeasure(point_cloud, sl::MEASURE::XYZBGRA);
 
           int bb_x_min = box.x;
           int bb_y_min = box.y;
@@ -300,25 +323,6 @@ int main(int argc, char **argv) {
               ros_pointcloud.point_step * ros_pointcloud.width;
           ros_pointcloud.data.resize(ros_pointcloud.row_step *
                                      ros_pointcloud.height);
-          if (full_point_cloud_topic_name != "") {
-            pcMsg->width = point_cloud.getWidth();
-            pcMsg->height = point_cloud.getHeight();
-            sensor_msgs::PointCloud2Modifier modifier2(*(pcMsg.get()));
-            modifier2.setPointCloud2Fields(
-                4, "x", 1, sensor_msgs::msg::PointField::FLOAT32, "y", 1,
-                sensor_msgs::msg::PointField::FLOAT32, "z", 1,
-                sensor_msgs::msg::PointField::FLOAT32, "rgb", 1,
-                sensor_msgs::msg::PointField::FLOAT32);
-
-            sl::Vector4<float> *cpu_cloud = point_cloud.getPtr<sl::float4>();
-            float *ptCloudPtr = reinterpret_cast<float *>(&pcMsg->data[0]);
-            int ptsCount = point_cloud.getWidth() * point_cloud.getHeight();
-            memcpy(ptCloudPtr, reinterpret_cast<float *>(cpu_cloud),
-                   ptsCount * 4 * sizeof(float));
-
-            // publish full point cloud
-            full_point_cloud_pub->publish(*pcMsg);
-          }
 
           float *data = reinterpret_cast<float *>(ros_pointcloud.data.data());
           sl::float4 point3D;
@@ -354,7 +358,7 @@ int main(int argc, char **argv) {
           cv::rectangle(cvImage, cv::Point(bb_x_min, bb_y_min),
                         cv::Point(bb_x_max, bb_y_max), cv::Scalar(255, 0, 0),
                         3);
-          show_resized_img(cvImage, 0.7, "video");
+          show_resized_img(cvImage, 0.4, "YOLO Segmentation");
           point_cloud_pub->publish(ros_pointcloud);
           if (camera_stream) {
             auto image_msg = cv_bridge::CvImage(std_msgs::msg::Header(), "bgr8",

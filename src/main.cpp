@@ -37,6 +37,7 @@ int main(int argc, char **argv) {
   // declare parameters
   node->declare_parameter("yolo_model_path", "./yolov8s-seg.onnx");
   node->declare_parameter("point_cloud_topic_name", "point_cloud");
+  node->declare_parameter("full_point_cloud_topic_name", "");
   node->declare_parameter("image_topic_name", "camera_raw");
   node->declare_parameter("camera_stream", true);
 
@@ -44,6 +45,8 @@ int main(int argc, char **argv) {
       node->get_parameter("yolo_model_path").as_string();
   std::string point_cloud_topic_name =
       node->get_parameter("point_cloud_topic_name").as_string();
+  std::string full_point_cloud_topic_name =
+      node->get_parameter("full_point_cloud_topic_name").as_string();
   std::string image_topic_name =
       node->get_parameter("image_topic_name").as_string();
   bool camera_stream = node->get_parameter("camera_stream").as_bool();
@@ -57,6 +60,14 @@ int main(int argc, char **argv) {
 
   auto point_cloud_pub = node->create_publisher<sensor_msgs::msg::PointCloud2>(
       point_cloud_topic_name, 1);
+
+  rclcpp::Publisher<sensor_msgs::msg::PointCloud2>::SharedPtr
+      full_point_cloud_pub;
+  if (full_point_cloud_topic_name != "") {
+    full_point_cloud_pub =
+        node->create_publisher<sensor_msgs::msg::PointCloud2>(
+            "full_point_cloud", 1);
+  }
   // create RGB camera publisher
   std::shared_ptr<rclcpp::Publisher<sensor_msgs::msg::Image>> image_pub;
   if (camera_stream) {
@@ -75,6 +86,8 @@ int main(int argc, char **argv) {
   init_parameters.depth_mode = DEPTH_MODE::NEURAL;
   init_parameters.coordinate_system =
       COORDINATE_SYSTEM::RIGHT_HANDED_Z_UP_X_FWD;
+  // use meters
+  init_parameters.coordinate_units = UNIT::METER;
 
   // init_parameters.coordinate_system = COORDINATE_SYSTEM::LEFT_HANDED_Y_UP;
   init_parameters.svo_real_time_mode = true;
@@ -162,6 +175,14 @@ int main(int argc, char **argv) {
   cv::Mat image;
   auto point_cloud_msg = std::make_shared<sensor_msgs::msg::PointCloud2>();
   std::vector<OutputParams> output;
+
+  // preallocate point cloud message
+  auto pcMsg = std::make_unique<sensor_msgs::msg::PointCloud2>();
+  auto ros_pointcloud = sensor_msgs::msg::PointCloud2();
+  ros_pointcloud.header.frame_id = pcMsg->header.frame_id =
+      "zed2_left_camera_frame";
+  ros_pointcloud.is_dense = pcMsg->is_dense = false;
+  ros_pointcloud.is_bigendian = pcMsg->is_bigendian = false;
 
   while (rclcpp::ok() && run) {
     auto err = zed.grab(rt_params);
@@ -258,50 +279,46 @@ int main(int argc, char **argv) {
                       servPort);
 
           sl::Mat point_cloud;
-          zed.retrieveMeasure(point_cloud, sl::MEASURE::XYZRGBA);
+          zed.retrieveMeasure(point_cloud, sl::MEASURE::XYZBGRA);
 
           int bb_x_min = box.x;
           int bb_y_min = box.y;
           int bb_x_max = box.x + box.width;
           int bb_y_max = box.y + box.height;
 
-          auto ros_pointcloud = sensor_msgs::msg::PointCloud2();
-          ros_pointcloud.header.stamp = node->now();
-          ros_pointcloud.header.frame_id = "zed2_left_camera_frame";
-
           ros_pointcloud.width = bb_x_max - bb_x_min;
           ros_pointcloud.height = bb_y_max - bb_y_min;
-          ros_pointcloud.is_dense = false;
-          ros_pointcloud.is_bigendian = false;
 
-          sensor_msgs::msg::PointField x_field, y_field, z_field, rgb_field;
-          x_field.name = "x";
-          x_field.offset = 0;
-          x_field.datatype = sensor_msgs::msg::PointField::FLOAT32;
-          x_field.count = 1;
-          y_field.name = "y";
-          y_field.offset = 4;
-          y_field.datatype = sensor_msgs::msg::PointField::FLOAT32;
-          y_field.count = 1;
-          z_field.name = "z";
-          z_field.offset = 8;
-          z_field.datatype = sensor_msgs::msg::PointField::FLOAT32;
-          z_field.count = 1;
-          rgb_field.name = "rgb";
-          rgb_field.offset = 12;
-          rgb_field.datatype = sensor_msgs::msg::PointField::UINT32;
-          rgb_field.count = 1;
-
-          ros_pointcloud.fields.push_back(x_field);
-          ros_pointcloud.fields.push_back(y_field);
-          ros_pointcloud.fields.push_back(z_field);
-          ros_pointcloud.fields.push_back(rgb_field);
+          sensor_msgs::PointCloud2Modifier modifier1(ros_pointcloud);
+          modifier1.setPointCloud2Fields(
+              4, "x", 1, sensor_msgs::msg::PointField::FLOAT32, "y", 1,
+              sensor_msgs::msg::PointField::FLOAT32, "z", 1,
+              sensor_msgs::msg::PointField::FLOAT32, "rgb", 1,
+              sensor_msgs::msg::PointField::FLOAT32);
           ros_pointcloud.point_step = 16;
           ros_pointcloud.row_step =
               ros_pointcloud.point_step * ros_pointcloud.width;
           ros_pointcloud.data.resize(ros_pointcloud.row_step *
                                      ros_pointcloud.height);
-          ros_pointcloud.is_dense = false;
+          if (full_point_cloud_topic_name != "") {
+            pcMsg->width = point_cloud.getWidth();
+            pcMsg->height = point_cloud.getHeight();
+            sensor_msgs::PointCloud2Modifier modifier2(*(pcMsg.get()));
+            modifier2.setPointCloud2Fields(
+                4, "x", 1, sensor_msgs::msg::PointField::FLOAT32, "y", 1,
+                sensor_msgs::msg::PointField::FLOAT32, "z", 1,
+                sensor_msgs::msg::PointField::FLOAT32, "rgb", 1,
+                sensor_msgs::msg::PointField::FLOAT32);
+
+            sl::Vector4<float> *cpu_cloud = point_cloud.getPtr<sl::float4>();
+            float *ptCloudPtr = reinterpret_cast<float *>(&pcMsg->data[0]);
+            int ptsCount = point_cloud.getWidth() * point_cloud.getHeight();
+            memcpy(ptCloudPtr, reinterpret_cast<float *>(cpu_cloud),
+                   ptsCount * 4 * sizeof(float));
+
+            // publish full point cloud
+            full_point_cloud_pub->publish(*pcMsg);
+          }
 
           float *data = reinterpret_cast<float *>(ros_pointcloud.data.data());
           sl::float4 point3D;
@@ -321,14 +338,11 @@ int main(int argc, char **argv) {
                 } else {
                   point_cloud.getValue(x, y, &point3D);
                   if (index < ros_pointcloud.width * ros_pointcloud.height) {
-                    data[index * 4 + 0] = point3D.x / 1000.0;
-                    data[index * 4 + 1] = point3D.y / 1000.0;
-                    data[index * 4 + 2] = point3D.z / 1000.0;
-                    uint32_t rgb = *reinterpret_cast<uint32_t *>(&point3D.w);
-                    // convert from ABGR to RGBA
-                    rgb = ((rgb & 0x000000FF) << 16) | ((rgb & 0x0000FF00)) |
-                          ((rgb & 0x00FF0000) >> 16);
-                    std::memcpy(&data[index * 4 + 3], &rgb, 4);
+                    data[index * 4 + 0] = point3D.x;
+                    data[index * 4 + 1] = point3D.y;
+                    data[index * 4 + 2] = point3D.z;
+                    uint32_t rgba = *reinterpret_cast<uint32_t *>(&point3D.w);
+                    std::memcpy(&data[index * 4 + 3], &rgba, 4);
                     index++;
                   }
                   pixel[2] = 255;

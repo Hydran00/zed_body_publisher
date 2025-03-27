@@ -80,5 +80,9 @@ target_link_libraries(${PROJECT_NAME} ${ZED_LIBS}  ${UTILS_LIB} ${SPECIAL_OS_LIB
 INSTALL (TARGETS ${PROJECT_NAME}
   DESTINATION lib/${PROJECT_NAME}
 )
+install(DIRECTORY launch
+  DESTINATION share/${PROJECT_NAME}
+)
+
 
 ament_package()

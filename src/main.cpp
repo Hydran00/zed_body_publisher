@@ -25,6 +25,13 @@ void show_resized_img(cv::Mat &img, float scale, std::string name) {
   cv::waitKey(1);
 }
 
+void show_resized_fhd(cv::Mat &img, std::string name) {
+  cv::Mat resized;
+  cv::resize(img, resized, cv::Size(1920, 1080)); // Resize to Full HD
+  cv::imshow(name, resized);
+  cv::waitKey(1);
+}
+
 int main(int argc, char **argv) {
   // Initialize ROS2
   rclcpp::init(argc, argv);
@@ -40,15 +47,26 @@ int main(int argc, char **argv) {
   node->declare_parameter("full_point_cloud_topic_name", "");
   node->declare_parameter("image_topic_name", "camera_raw");
   node->declare_parameter("camera_stream", true);
+  node->declare_parameter("resolution", "2K");
 
   std::string yolo_model_path =
       node->get_parameter("yolo_model_path").as_string();
   std::string point_cloud_topic_name =
       node->get_parameter("point_cloud_topic_name").as_string();
+  RCLCPP_INFO(node->get_logger(), "Point cloud topic: %s",
+              point_cloud_topic_name.c_str());
   std::string full_point_cloud_topic_name =
       node->get_parameter("full_point_cloud_topic_name").as_string();
   std::string image_topic_name =
       node->get_parameter("image_topic_name").as_string();
+  std::string resolution = node->get_parameter("resolution").as_string();
+  if (resolution != "2K" && resolution != "FHD" && resolution != "HD") {
+    std::cout << "Only '2K', 'FHD' and HD resolutions are supported"
+              << std::endl;
+    return -1;
+  }
+  std::string frame_id = "zed2_left_camera_frame";
+  RCLCPP_INFO(node->get_logger(), "Resolution: %s", resolution.c_str());
   bool camera_stream = node->get_parameter("camera_stream").as_bool();
   cv::dnn::Net net;
   Yolov8Seg yolov8Seg;
@@ -66,7 +84,10 @@ int main(int argc, char **argv) {
   if (full_point_cloud_topic_name != "") {
     full_point_cloud_pub =
         node->create_publisher<sensor_msgs::msg::PointCloud2>(
-            "full_point_cloud", 1);
+            full_point_cloud_topic_name, 10);
+    RCLCPP_INFO(node->get_logger(),
+                "Full point cloud publisher created on topic %s",
+                full_point_cloud_topic_name.c_str());
   }
   // create RGB camera publisher
   std::shared_ptr<rclcpp::Publisher<sensor_msgs::msg::Image>> image_pub;
@@ -81,7 +102,15 @@ int main(int argc, char **argv) {
               point_cloud_topic_name.c_str());
   Camera zed;
   InitParameters init_parameters;
-  init_parameters.camera_resolution = RESOLUTION::HD1080;
+  if (resolution == "2K") {
+    init_parameters.camera_resolution = RESOLUTION::HD2K;
+  } else {
+    if (resolution == "FHD") {
+      init_parameters.camera_resolution = RESOLUTION::HD1080;
+    } else {
+      init_parameters.camera_resolution = RESOLUTION::HD720;
+    }
+  }
   init_parameters.camera_fps = 30;
   init_parameters.depth_mode = DEPTH_MODE::NEURAL;
   init_parameters.coordinate_system =
@@ -105,6 +134,9 @@ int main(int argc, char **argv) {
   float cy = calibration_params.left_cam.cy;
   // First radial distortion coefficient
   double *dist = calibration_params.left_cam.disto;
+
+  // reboot
+  // zed.reboot(0);
 
   RCLCPP_INFO(node->get_logger(), "Focal length: %f %f", focal_left_x,
               focal_left_y);
@@ -166,7 +198,6 @@ int main(int argc, char **argv) {
             << std::endl;
 
   RuntimeParameters rt_params;
-  // rt_params.measure3D_reference_frame = REFERENCE_FRAME::WORLD;
   rt_params.measure3D_reference_frame = REFERENCE_FRAME::CAMERA;
 
   std::cout << "Sending Mono-Camera data at " << servAddress << ":" << servPort
@@ -176,15 +207,26 @@ int main(int argc, char **argv) {
   auto point_cloud_msg = std::make_shared<sensor_msgs::msg::PointCloud2>();
   std::vector<OutputParams> output;
 
+  sensor_msgs::msg::PointField x_field, y_field, z_field, rgb_field;
+  x_field.name = "x";
+  x_field.offset = 0;
+  x_field.datatype = sensor_msgs::msg::PointField::FLOAT32;
+  x_field.count = 1;
+  y_field.name = "y";
+  y_field.offset = 4;
+  y_field.datatype = sensor_msgs::msg::PointField::FLOAT32;
+  y_field.count = 1;
+  z_field.name = "z";
+  z_field.offset = 8;
+  z_field.datatype = sensor_msgs::msg::PointField::FLOAT32;
+  z_field.count = 1;
+  rgb_field.name = "rgb";
+  rgb_field.offset = 12;
+  rgb_field.datatype = sensor_msgs::msg::PointField::UINT32;
+  rgb_field.count = 1;
+
   // preallocate point cloud message
   auto pcMsg = std::make_unique<sensor_msgs::msg::PointCloud2>();
-  auto ros_pointcloud = sensor_msgs::msg::PointCloud2();
-  ros_pointcloud.header.frame_id = pcMsg->header.frame_id =
-      "zed2_left_camera_frame";
-  ros_pointcloud.is_dense = pcMsg->is_dense = false;
-  ros_pointcloud.is_bigendian = pcMsg->is_bigendian = false;
-
-
   cv::namedWindow("YOLO Segmentation", cv::WINDOW_AUTOSIZE);
   cv::namedWindow("RGB Image", cv::WINDOW_AUTOSIZE);
 
@@ -195,7 +237,7 @@ int main(int argc, char **argv) {
       zed.retrieveImage(sl_image, VIEW::LEFT);
       sl::Mat point_cloud;
       zed.retrieveMeasure(point_cloud, sl::MEASURE::XYZBGRA);
-      
+
       cv::Mat cvImage(sl_image.getHeight(), sl_image.getWidth(),
                       (sl_image.getChannels() == 1) ? CV_8UC1 : CV_8UC4,
                       sl_image.getPtr<sl::uchar1>(sl::MEM::CPU));
@@ -205,26 +247,44 @@ int main(int argc, char **argv) {
         cv::cvtColor(cvImage, tmpImage, cv::COLOR_BGRA2BGR);
         cvImage = tmpImage;
       }
+
       if (full_point_cloud_topic_name != "") {
         pcMsg->width = point_cloud.getWidth();
         pcMsg->height = point_cloud.getHeight();
+        pcMsg->is_dense = false;
+        pcMsg->is_bigendian = false;
+        pcMsg->fields.clear();
+        pcMsg->fields.push_back(x_field);
+        pcMsg->fields.push_back(y_field);
+        pcMsg->fields.push_back(z_field);
+        pcMsg->fields.push_back(rgb_field);
+        pcMsg->point_step = 16;
+        pcMsg->row_step = pcMsg->point_step * pcMsg->width;
+        pcMsg->data.resize(pcMsg->row_step * pcMsg->height);
+        pcMsg->header.stamp = node->now();
+        pcMsg->header.frame_id = frame_id;
         sensor_msgs::PointCloud2Modifier modifier2(*(pcMsg.get()));
-        modifier2.setPointCloud2Fields(
-            4, "x", 1, sensor_msgs::msg::PointField::FLOAT32, "y", 1,
-            sensor_msgs::msg::PointField::FLOAT32, "z", 1,
-            sensor_msgs::msg::PointField::FLOAT32, "rgb", 1,
-            sensor_msgs::msg::PointField::FLOAT32);
 
         sl::Vector4<float> *cpu_cloud = point_cloud.getPtr<sl::float4>();
         float *ptCloudPtr = reinterpret_cast<float *>(&pcMsg->data[0]);
         int ptsCount = point_cloud.getWidth() * point_cloud.getHeight();
-        memcpy(ptCloudPtr, reinterpret_cast<float *>(cpu_cloud),
-               ptsCount * 4 * sizeof(float));
+        // memcpy(ptCloudPtr, reinterpret_cast<float *>(cpu_cloud),
+        //        ptsCount * 4 * sizeof(float));
+        // std::copy(reinterpret_cast<float *>(cpu_cloud),
+        //           reinterpret_cast<float *>(cpu_cloud) + (ptsCount * 4),
+        //           ptCloudPtr);
+        std::memcpy(ptCloudPtr,
+                    std::launder(reinterpret_cast<float *>(cpu_cloud)),
+                    ptsCount * 4 * sizeof(float));
 
         // publish full point cloud
         full_point_cloud_pub->publish(*pcMsg);
       }
-      show_resized_img(cvImage, 0.7, "RGB Image");
+      if (resolution == "2K") {
+        show_resized_fhd(cvImage, "RGB Image");
+      } else {
+        show_resized_fhd(cvImage, "RGB Image");
+      }
       // draw bbox
       zed.retrieveBodies(bodies, body_tracker_parameters_rt);
       if (bodies.body_list.size() == 0) {
@@ -297,32 +357,36 @@ int main(int argc, char **argv) {
           // cv::Mat boxMask = erodedMask;  // Use eroded mask for processing
 
           // continue;
-          std::string data_to_send = getJson(zed, bodies, closest_body,
-                                             body_tracker_params.body_format)
-                                         .dump();
-          sock.sendTo(data_to_send.data(), data_to_send.size(), servAddress,
-                      servPort);
-
+          // std::string data_to_send = getJson(zed, bodies, closest_body,
+          //                                    body_tracker_params.body_format)
+          //                                .dump();
+          // sock.sendTo(data_to_send.data(), data_to_send.size(), servAddress,
+          //             servPort);
 
           int bb_x_min = box.x;
           int bb_y_min = box.y;
           int bb_x_max = box.x + box.width;
           int bb_y_max = box.y + box.height;
 
+          auto ros_pointcloud = sensor_msgs::msg::PointCloud2();
+          ros_pointcloud.header.stamp = node->now();
+          ros_pointcloud.header.frame_id = frame_id;
+
           ros_pointcloud.width = bb_x_max - bb_x_min;
           ros_pointcloud.height = bb_y_max - bb_y_min;
+          ros_pointcloud.is_dense = false;
+          ros_pointcloud.is_bigendian = false;
 
-          sensor_msgs::PointCloud2Modifier modifier1(ros_pointcloud);
-          modifier1.setPointCloud2Fields(
-              4, "x", 1, sensor_msgs::msg::PointField::FLOAT32, "y", 1,
-              sensor_msgs::msg::PointField::FLOAT32, "z", 1,
-              sensor_msgs::msg::PointField::FLOAT32, "rgb", 1,
-              sensor_msgs::msg::PointField::FLOAT32);
+          ros_pointcloud.fields.push_back(x_field);
+          ros_pointcloud.fields.push_back(y_field);
+          ros_pointcloud.fields.push_back(z_field);
+          ros_pointcloud.fields.push_back(rgb_field);
           ros_pointcloud.point_step = 16;
           ros_pointcloud.row_step =
               ros_pointcloud.point_step * ros_pointcloud.width;
           ros_pointcloud.data.resize(ros_pointcloud.row_step *
                                      ros_pointcloud.height);
+          ros_pointcloud.is_dense = false;
 
           float *data = reinterpret_cast<float *>(ros_pointcloud.data.data());
           sl::float4 point3D;
@@ -347,6 +411,9 @@ int main(int argc, char **argv) {
                     data[index * 4 + 2] = point3D.z;
                     uint32_t rgba = *reinterpret_cast<uint32_t *>(&point3D.w);
                     std::memcpy(&data[index * 4 + 3], &rgba, 4);
+                    // std::copy(reinterpret_cast<uint8_t *>(&rgba),
+                    //           reinterpret_cast<uint8_t *>(&rgba) + 4,
+                    //           &data[index * 4 + 3]);
                     index++;
                   }
                   pixel[2] = 255;

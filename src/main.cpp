@@ -94,14 +94,14 @@ int main(int argc, char **argv) {
   RCLCPP_INFO(node->get_logger(), "YOLOv8 model loaded");
 
   auto point_cloud_pub = node->create_publisher<sensor_msgs::msg::PointCloud2>(
-      point_cloud_topic_name, rclcpp::SensorDataQoS());
+      point_cloud_topic_name, 1);
 
   rclcpp::Publisher<sensor_msgs::msg::PointCloud2>::SharedPtr
       full_point_cloud_pub;
   if (full_point_cloud_topic_name != "") {
     full_point_cloud_pub =
         node->create_publisher<sensor_msgs::msg::PointCloud2>(
-            full_point_cloud_topic_name, rclcpp::SensorDataQoS());
+            full_point_cloud_topic_name, 1);
     RCLCPP_INFO(node->get_logger(),
                 "Full point cloud publisher created on topic %s",
                 full_point_cloud_topic_name.c_str());
@@ -112,7 +112,7 @@ int main(int argc, char **argv) {
     RCLCPP_INFO(node->get_logger(), "RGB camera publisher created on topic %s",
                 image_topic_name.c_str());
     image_pub = node->create_publisher<sensor_msgs::msg::Image>(
-        image_topic_name, rclcpp::SensorDataQoS());
+        image_topic_name, 1);
   }
 
   RCLCPP_INFO(node->get_logger(), "Point cloud publisher created on topic %s",
@@ -161,10 +161,10 @@ int main(int argc, char **argv) {
               dist[2], dist[3]);
   // reset camera settings
   zed.setCameraSettings(VIDEO_SETTINGS::EXPOSURE, VIDEO_SETTINGS_VALUE_AUTO);
-  if (point_cloud_topic_name == "zed_point_cloud_1") {
+  if (point_cloud_topic_name == "zed_point_cloud_2") {
     // increase exposure
     RCLCPP_INFO(node->get_logger(), "Increasing exposure");
-    zed.setCameraSettings(VIDEO_SETTINGS::EXPOSURE, 30);
+    zed.setCameraSettings(VIDEO_SETTINGS::EXPOSURE, 20);
   }
   if (returned_state != ERROR_CODE::SUCCESS) {
     zed.close();

@@ -33,8 +33,9 @@ def launch_setup(context):
     else:
         node_1_suffix = "_1"
         node_2_suffix = "_2"
+    print("Node 1 suffix:", node_1_suffix)
+    print("Node 2 suffix:", node_2_suffix)
 
-    
     cloud1 = Node(
         package="zed_body_publisher",
         executable="zed_body_publisher",
@@ -71,38 +72,38 @@ def launch_setup(context):
     ])
     # ])
     pc_filter_1 = Node(
-                package="pc2_filter",
-                executable="pc2_filter",
-                parameters=[{
-                    "frame_id" : "cam_1",
-                    "input_topic_name": "zed_point_cloud_1",
-                    "output_topic_name": "filtered_cloud_1",
-                    "voxel_grid_size": 0.002,
-                    "x_segment_distance_min": -100.0,
-                    "x_segment_distance_max": 100.0,# 2.4,
-
-                    "y_segment_distance_min": -100.0,# -0.4,
-                    "y_segment_distance_max": 100.0, #0.4,
-                    "z_segment_distance_min": -100.0,#,
-                    "z_segment_distance_max": 100.0,
-                    "compression_method": "none"
-                    }]
+            package="pc2_filter",
+            executable="pc2_filter",
+            parameters=[{
+                "input_frame" : "cam_1",
+                "target_frame": "lbr_link_0",
+                "input_topic_name": "full_cloud_1",
+                "output_topic_name": "filtered_cloud_1",
+                "voxel_grid_size": 0.004,
+                "x_segment_distance_min": 0.0,
+                "x_segment_distance_max": 2.0,# 2.4,
+                "y_segment_distance_min": -2.0,# -0.4,
+                "y_segment_distance_max": 2.0, #0.4,
+                "z_segment_distance_min": -0.1,#,
+                "z_segment_distance_max": 0.4,
+                "compression_method": "none"
+                }]
             )
     pc_filter_2 = Node(
             package="pc2_filter",
             executable="pc2_filter",
             parameters=[{
-                "frame_id" : "cam_2",
-                "input_topic_name": "zed_point_cloud_2",
+                "input_frame" : "cam_2",
+                "input_topic_name": "full_cloud_2", #zed_point_cloud_2",
                 "output_topic_name": "filtered_cloud_2",
-                "voxel_grid_size": 0.002,
-                "x_segment_distance_min": -100.0,
-                "x_segment_distance_max": 100.0, #2.4,
-
-                "y_segment_distance_min": -100.0,# -0.4,
-                "y_segment_distance_max": 100.0, #0.4,
-                "z_segment_distance_min": -100.0,#,
-                "z_segment_distance_max": 100.0,
+                "target_frame": "lbr_link_0",
+                "voxel_grid_size": 0.004,
+                "x_segment_distance_min": 0.0,
+                "x_segment_distance_max": 2.0, #2.4,
+                "y_segment_distance_min": -0.6,# -0.4,
+                "y_segment_distance_max": 0.6, #0.4,
+                "z_segment_distance_min": -0.1,#,
+                "z_segment_distance_max": 0.4,
                 "compression_method": "none"
                 }]
         )
@@ -122,8 +123,10 @@ def launch_setup(context):
     )
         
 
-
-    return [cameras_tf_publisher, cloud1, cloud2, pc_filter_1, pc_filter_2]
+    if node_2_suffix == "_2":
+        return [cameras_tf_publisher, cloud1, cloud2, pc_filter_2, pc_filter_1]
+    else:
+        return [cameras_tf_publisher, cloud1, cloud2, pc_filter_2, pc_filter_1]
     # return [cloud2, cloud1, pc_filter]
 
 

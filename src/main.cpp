@@ -111,8 +111,8 @@ int main(int argc, char **argv) {
   if (camera_stream) {
     RCLCPP_INFO(node->get_logger(), "RGB camera publisher created on topic %s",
                 image_topic_name.c_str());
-    image_pub = node->create_publisher<sensor_msgs::msg::Image>(
-        image_topic_name, 1);
+    image_pub =
+        node->create_publisher<sensor_msgs::msg::Image>(image_topic_name, 1);
   }
 
   RCLCPP_INFO(node->get_logger(), "Point cloud publisher created on topic %s",
@@ -139,7 +139,7 @@ int main(int argc, char **argv) {
 
   parseArgsMonoCam(argc, argv, init_parameters);
   // disable self calibration
-  init_parameters.camera_disable_self_calib = true;
+  // init_parameters.camera_disable_sel  f_calib = false;
   auto returned_state = zed.open(init_parameters);
   CalibrationParameters calibration_params =
       zed.getCameraInformation().camera_configuration.calibration_parameters;
@@ -357,12 +357,11 @@ int main(int argc, char **argv) {
 
     cv::Rect box = output[best_idx].box;
     cv::Mat boxMask = output[best_idx].boxMask;
-    // cv::Mat kernel =
-    //     cv::getStructuringElement(cv::MORPH_RECT, cv::Size(20,
-    // 20));
-    // cv::Mat erodedMask;
-    // cv::erode(boxMask, erodedMask, kernel);
-    // cv::Mat boxMask = erodedMask;  // Use eroded mask for
+    cv::Mat kernel =
+        cv::getStructuringElement(cv::MORPH_RECT, cv::Size(10, 10));
+    cv::Mat erodedMask;
+    cv::erode(boxMask, erodedMask, kernel);
+    boxMask = erodedMask; // Use eroded mask for
     // processing
 
     // continue;

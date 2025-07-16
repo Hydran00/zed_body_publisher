@@ -19,7 +19,10 @@
 
 #ifndef __PRACTICALSOCKET_INCLUDED__
 #define __PRACTICALSOCKET_INCLUDED__
-
+#ifdef __GNUC__
+// Avoid warnings
+#pragma GCC system_header
+#endif
 #include <string>            // For string
 #include <exception>         // For exception class
 

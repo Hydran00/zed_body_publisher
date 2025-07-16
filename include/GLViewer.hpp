@@ -1,6 +1,9 @@
 ﻿#ifndef __VIEWER_INCLUDE__
 #define __VIEWER_INCLUDE__
-
+#ifdef __GNUC__
+// Avoid warnings
+#pragma GCC system_header
+#endif
 #include <vector>
 #include <mutex>
 #include <map>
